@@ -41,8 +41,8 @@ INSTRUCTIONS = (
     "Forge engine. It is turn {turn}, {active} turn, {phase}. Your goal is to win: reduce your opponent "
     "to 0 life while staying alive. The state lists life totals, your hand with card text, every "
     "battlefield and the stack. Mana is paid automatically and combat damage is assigned for you. "
-    "Each option is legal, with facts already computed for it. {kind_line} Forge asks: \"{prompt}\". "
-    "Which option is best right now?"
+    "Each option is legal, with facts already computed for it. {kind_line}{step_line}{prompt_line} "
+    "Forge asks: \"{prompt}\". Which option is best right now?"
 )
 
 # One line per decision kind: what picking an option means.
@@ -57,6 +57,51 @@ KIND_LINES = {
     "confirm": "Answer yes or no.",
     "mode": "Pick a mode of the spell or ability.",
 }
+
+
+# What passing priority means where the game stands (#79): Jev sees one
+# decision at a time and cannot tell that a pass in the second main phase ends
+# the turn, or that mana spent in the upkeep is gone for the main phase.
+STACK_LINE = "The stack is not empty: passing lets the top of the stack resolve; respond only if it is worth answering."
+OPPONENT_TURN_LINE = (
+    "It is your opponent's turn: only instants, cards with flash and abilities can be used now; "
+    "use them to answer what your opponent does, otherwise pass."
+)
+OWN_STEP_LINES = {
+    "UPKEEP": "Your turn has just begun: passing moves on to your first main phase, where you can play a land and "
+              "cast any spell; spend mana now only for what must happen now.",
+    "MAIN1": "Your first main phase: play a land if you have not yet, and cast what should be on the battlefield before combat.",
+    "COMBAT": "Combat on your turn: act only to change this combat.",
+    "MAIN2": "Your second main phase, the last chance this turn for a land and sorcery-speed spells: passing with an "
+             "empty stack ends your turn and unused mana is lost. Keep mana open only for instant-speed cards you hold.",
+    "END": "Your turn is ending.",
+}
+OWN_STEP_LINES["DRAW"] = OWN_STEP_LINES["UPKEEP"]
+OWN_STEP_LINES["END_OF_TURN"] = OWN_STEP_LINES["CLEANUP"] = OWN_STEP_LINES.pop("END")
+
+# What an answer to a prompt means, when Forge's rules text does not say it plainly.
+COMMAND_ZONE_LINE = (
+    "Yes moves your commander to the command zone, where you can cast it again; "
+    "No leaves it in the graveyard or exile for the rest of the game."
+)
+
+
+def step_line(view: dict, kind: str) -> str:
+    if kind != "priority":
+        return ""
+    if view.get("stack"):
+        return " " + STACK_LINE
+    if view.get("active_seat") != view["you"]["seat"]:
+        return " " + OPPONENT_TURN_LINE
+    phase = view.get("phase") or ""
+    line = OWN_STEP_LINES.get("COMBAT" if phase.startswith("COMBAT") else phase, "")
+    return " " + line if line else ""
+
+
+def prompt_line(kind: str, prompt: str) -> str:
+    if kind == "confirm" and "command zone" in prompt:
+        return " " + COMMAND_ZONE_LINE
+    return ""
 
 
 # -- the state Jev sees ----------------------------------------------------------
@@ -165,6 +210,8 @@ def instructions(view: dict, kind: str, prompt: str) -> str:
         active=whose,
         phase=(view.get("phase") or "game start").replace("_", " ").lower(),
         kind_line=KIND_LINES.get(kind, ""),
+        step_line=step_line(view, kind),
+        prompt_line=prompt_line(kind, prompt),
         prompt=prompt,
     )
 

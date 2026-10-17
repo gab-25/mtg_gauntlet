@@ -5,7 +5,7 @@ import json
 import pytest
 
 from playtest.agents import typesafe
-from playtest.agents.jev_agent import JevAgent, describe_option, jev_state
+from playtest.agents.jev_agent import JevAgent, describe_option, instructions, jev_state
 
 from .fakeforge import sample_decision
 
@@ -74,6 +74,33 @@ def test_the_instructions_name_the_format_the_turn_the_kind_and_forges_prompt():
     assert "(Modern)" in text and "turn 3, your turn" in text
     assert "Declare attackers one at a time" in text
     assert 'Forge asks: "Declare attackers"' in text
+
+
+def _priority_view(phase, active=0, stack=()):
+    view = sample_decision()["view"]
+    view["phase"], view["active_seat"], view["stack"] = phase, active, list(stack)
+    return view
+
+
+def test_a_priority_decision_says_what_passing_means_in_this_step():
+    text = lambda phase, active=0, stack=(): instructions(_priority_view(phase, active, stack), "priority", "x")  # noqa: E731
+    assert "passing moves on to your first main phase" in text("UPKEEP")
+    assert "passing moves on to your first main phase" in text("DRAW")
+    assert "play a land if you have not" in text("MAIN1")
+    assert "act only to change this combat" in text("COMBAT_DECLARE_ATTACKERS")
+    assert "passing with an empty stack ends your turn" in text("MAIN2")
+    assert "your opponent's turn" in text("MAIN1", active=1) and "instant" in text("MAIN1", active=1)
+    assert "passing lets the top of the stack resolve" in text("MAIN1", stack=[{"text": "Shock"}])
+    # Only priority decisions get a step line.
+    assert "ends your turn" not in instructions(_priority_view("MAIN2"), "attack", "Declare attackers")
+
+
+def test_the_command_zone_prompt_says_what_no_costs():
+    prompt = ("Aragorn, King of Gondor: If a commander is in a graveyard or in exile and that card was put into "
+              "that zone since the last time state-based actions were checked, its owner may put it into the command zone.")
+    text = instructions(_priority_view("MAIN1"), "confirm", prompt)
+    assert "Yes moves your commander to the command zone" in text
+    assert "command zone" not in instructions(_priority_view("MAIN1"), "confirm", "Use the optional trigger of X")
 
 
 def test_the_state_is_the_view_filtered_to_the_decision():
