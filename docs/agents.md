@@ -62,7 +62,12 @@ One Jev request per decision:
   or exile). No ids, no history.
 - **one `choice` named `action`**: its instructions name the seat, the format, the
   turn, whose turn and phase it is and the goal, plus a line per decision kind
-  (`KIND_LINES`) and Forge's prompt. Its options are exactly the bridge's, keyed
+  (`KIND_LINES`), a line saying what passing means where the game stands on a priority
+  decision (`step_line`: a non-empty stack, the opponent's turn, or the own step —
+  upkeep and draw move on to the main phase, the second main phase ends the turn with
+  its mana), a line for prompts whose rules text hides the stake (`prompt_line`: "No"
+  to the command zone leaves the commander in the graveyard or exile), and Forge's
+  prompt (#79). Its options are exactly the bridge's, keyed
   `o<index>`, each described by its label **plus Forge's facts** (`describe_option`);
   the model computes nothing.
 - the options are **shuffled with the agent's seeded RNG** before each request and
