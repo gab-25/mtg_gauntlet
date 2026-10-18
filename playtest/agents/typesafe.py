@@ -89,6 +89,32 @@ def choice(instructions, criteria: dict) -> dict:
     return {"type": "choice", "instructions": instructions, "criteria": criteria}
 
 
+# Jev's documented range for the levels of a score question.
+MIN_SCORE_LEVELS, MAX_SCORE_LEVELS = 2, 10
+
+
+def score(instructions, levels: list) -> dict:
+    """A ``score`` question: ``levels`` are the ordered descriptions, lowest first; the
+    answer's ``score`` is the probability-weighted level number (0 to ``len(levels) - 1``)."""
+    if not MIN_SCORE_LEVELS <= len(levels) <= MAX_SCORE_LEVELS:
+        raise ValueError(f"a score takes {MIN_SCORE_LEVELS} to {MAX_SCORE_LEVELS} levels, not {len(levels)}")
+    return {"type": "score", "instructions": instructions, "criteria": list(levels)}
+
+
+def read_score(answer) -> tuple[float, float, dict]:
+    """``(score, confidence, probabilities by level number)`` of one score answer.
+
+    Raises :class:`TypeSafeError` when the answer is malformed.
+    """
+    try:
+        value = float(answer["score"])
+        confidence = float(answer["confidence"])
+        probabilities = {str(k): float(v) for k, v in (answer.get("probabilities") or {}).items()}
+    except (LookupError, TypeError, ValueError, AttributeError) as exc:
+        raise TypeSafeError(f"malformed score answer ({exc})") from exc
+    return value, confidence, probabilities
+
+
 def _retry_after(response) -> float | None:
     value = (getattr(response, "headers", None) or {}).get("retry-after")
     try:

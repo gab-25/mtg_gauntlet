@@ -129,3 +129,21 @@ def test_key_status_without_a_key_or_network(monkeypatch):
     assert typesafe.key_status("k") == "unreachable"
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert typesafe.key_status() == "no API key"
+
+
+def test_score_question_shape_and_limits():
+    assert typesafe.score("How good?", ["lost", "even", "won"]) == {
+        "type": "score", "instructions": "How good?", "criteria": ["lost", "even", "won"]}
+    with pytest.raises(ValueError):
+        typesafe.score("x", ["only one"])
+    with pytest.raises(ValueError):
+        typesafe.score("x", [str(n) for n in range(11)])
+
+
+def test_read_score():
+    answer = {"type": "score", "score": 3.7, "probabilities": {"3": 0.3, "4": 0.7}, "confidence": 0.6}
+    assert typesafe.read_score(answer) == (3.7, 0.6, {"3": 0.3, "4": 0.7})
+    with pytest.raises(typesafe.TypeSafeError):
+        typesafe.read_score({"type": "score"})
+    with pytest.raises(typesafe.TypeSafeError):
+        typesafe.read_score(None)

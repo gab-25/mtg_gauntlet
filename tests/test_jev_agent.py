@@ -11,26 +11,44 @@ from .fakeforge import sample_decision
 
 
 class StubJev:
-    """Answers like Jev: picks the option ``prefer`` says, with a given confidence."""
+    """Answers like Jev: picks the option ``prefer`` says, with a given confidence, and
+    rates a ``score`` question with ``scores[id]`` (a dict or a callable of the id; 3.0 by default)."""
 
-    def __init__(self, prefer=None, confidence=0.9, fail=None):
+    def __init__(self, prefer=None, confidence=0.9, fail=None, scores=None):
         self.prefer = prefer or (lambda criteria: sorted(criteria)[-1])
         self.confidence = confidence
         self.fail = fail
+        self.scores = scores
         self.requests = []
+
+    def _score(self, question_id, question):
+        if callable(self.scores):
+            value = self.scores(question_id)
+        else:
+            value = (self.scores or {}).get(question_id, 3.0)
+        if value is None:
+            return None
+        levels = len(question["criteria"])
+        probabilities = {str(n): (1.0 if n == round(value) else 0.0) for n in range(levels)}
+        return {"type": "score", "score": value, "probabilities": probabilities, "confidence": 0.8}
 
     def __call__(self, state, questions, model=None):
         self.requests.append((state, questions, model))
         if self.fail:
             raise typesafe.TypeSafeError(self.fail)
-        criteria = questions["action"]["criteria"]
-        pick = self.prefer(criteria)
-        rest = (1 - self.confidence) / max(len(criteria) - 1, 1)
-        probabilities = {key: (self.confidence if key == pick else rest) for key in criteria}
-        return {
-            "model": "typesafe/jev-1.13",
-            "answers": {"action": {"type": "choice", "choice": pick, "confidence": self.confidence, "probabilities": probabilities}},
-        }
+        answers = {}
+        for question_id, question in questions.items():
+            if question["type"] == "score":
+                answer = self._score(question_id, question)
+                if answer is not None:
+                    answers[question_id] = answer
+                continue
+            criteria = question["criteria"]
+            pick = self.prefer(criteria)
+            rest = (1 - self.confidence) / max(len(criteria) - 1, 1)
+            probabilities = {key: (self.confidence if key == pick else rest) for key in criteria}
+            answers[question_id] = {"type": "choice", "choice": pick, "confidence": self.confidence, "probabilities": probabilities}
+        return {"model": "typesafe/jev-1.13", "answers": answers}
 
 
 def _choose(agent, decision=None):
