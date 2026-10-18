@@ -9,10 +9,16 @@ with the agent's seeded RNG before every request and mapped back by key: Jev
 leans toward the first option, and Forge's first option is always "Pass" or
 "Done".
 
+On a decision the bridge simulated (``simulated``: whole attacks, blocks or
+plays, each with the position it leads to), the same request also asks one
+``score`` question per outcome — how good is the position, on a fixed scale
+from "lost" to "won" — and the agent picks the best-scored option, the
+``choice`` breaking ties.
+
 The answer's confidence and distribution travel with the decision to the
-bridge's event. Below ``MIN_CONFIDENCE``, or when Jev cannot be reached,
-the agent delegates: Forge's AI decides, and the fallback is logged with the
-reason.
+bridge's event. Jev always answers for itself: only when it cannot be
+reached, or its answer cannot be read, does the agent delegate to Forge's AI,
+and the fallback is logged with the reason.
 """
 
 import json
@@ -26,15 +32,22 @@ from .base import Decision, delegate
 
 logger = logging.getLogger(__name__)
 
-# Confidence under which Forge's AI decides instead. Jev's confidence measures how peaked its distribution is,
-# not the chosen option's probability. Measured on Forge's decisions (a Modern
-# Burn seat against Forge's AI, 23 decisions, jev-1.13, 2026-10-13): median
-# 0.38, quartiles 0.20 / 0.82; 0.2 hands over 17% of decisions (the near-ties
-# between two burn spells), 0.4 would hand over half. The Python kernel's
-# decisions measured the same (222, median ~0.4).
-MIN_CONFIDENCE = 0.2
 # How many of Jev's top options a decision keeps for the log.
 TOP_PROBABILITIES = 3
+
+# The scale Jev rates a simulated position on (score question, levels 0–6). Generic on
+# purpose: no format, no card names. Each level is one line Jev reads.
+SCORE_LEVELS = [
+    "lost: you are dead or lose on the spot (life at 0 or less, no way out)",
+    "losing badly: far behind on life and board, the opponent is about to win",
+    "behind: fewer or weaker creatures, less life or fewer cards than the opponent",
+    "even: comparable life, board and cards; nobody is clearly ahead",
+    "ahead: more or better creatures, more life or more cards than the opponent",
+    "winning clearly: a dominant board or the opponent at very low life, hard to lose",
+    "won: the opponent is dead or loses on the spot",
+]
+# Scores this close to the best are a tie, broken by the choice question.
+TIE = 0.1
 
 INSTRUCTIONS = (
     "You play {you} in a game of Magic: The Gathering ({format}), played under the full rules by the "
@@ -45,7 +58,12 @@ INSTRUCTIONS = (
     "Forge asks: \"{prompt}\". Which option is best right now?"
 )
 
-# One line per decision kind: what picking an option means.
+# One line per decision kind: what picking an option means. On a simulated
+# decision attacks and blocks are whole plans, not one creature at a time.
+SIMULATED_KIND_LINES = {
+    "attack": "Pick your whole attack; \"No attack\" skips combat.",
+    "block": "Pick your whole set of blocks; \"No block\" takes the damage.",
+}
 KIND_LINES = {
     "mulligan": "Keep the opening hand, or mulligan to a new one with one card fewer.",
     "bottom": "After a mulligan, pick a card to put on the bottom of your library.",
@@ -192,7 +210,13 @@ def describe_option(option: dict) -> str:
     return option["label"] + (" — " + "; ".join(facts) if facts else "")
 
 
-def instructions(view: dict, kind: str, prompt: str) -> str:
+def kind_line(kind: str, simulated: bool = False) -> str:
+    if simulated and kind in SIMULATED_KIND_LINES:
+        return SIMULATED_KIND_LINES[kind]
+    return KIND_LINES.get(kind, "")
+
+
+def instructions(view: dict, kind: str, prompt: str, simulated: bool = False) -> str:
     you = view["you"]
     active = view.get("active_seat")
     if active is None:
@@ -207,7 +231,7 @@ def instructions(view: dict, kind: str, prompt: str) -> str:
         turn=view.get("turn", 0),
         active=whose,
         phase=(view.get("phase") or "game start").replace("_", " ").lower(),
-        kind_line=KIND_LINES.get(kind, ""),
+        kind_line=kind_line(kind, simulated),
         step_line=step_line(view, kind),
         prompt_line=prompt_line(kind, prompt),
         prompt=prompt,
@@ -218,18 +242,18 @@ def instructions(view: dict, kind: str, prompt: str) -> str:
 
 
 class JevAgent:
-    """Plays through Jev; never blocks the game: when unsure or unreachable it delegates."""
+    """Plays through Jev; never blocks the game: when Jev cannot answer it delegates."""
 
     # Model-backed: the worker pool meters its calls and the match's wall clock.
     metered = True
 
-    def __init__(self, model: str | None = None, *, seed: int | None = None, ask=None, min_confidence: float | None = None):
+    def __init__(self, model: str | None = None, *, seed: int | None = None, ask=None):
         self.model = model or typesafe.MODEL
         self.rng = random.Random(f"{seed}:jev")
         self.ask = ask or typesafe.system_one
-        self.min_confidence = MIN_CONFIDENCE if min_confidence is None else min_confidence
 
-    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "") -> Decision:
+    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "",
+               simulated: bool = False) -> Decision:
         if len(options) > typesafe.MAX_CHOICE_OPTIONS:
             return delegate("error", f"{len(options)} options: Jev takes at most {typesafe.MAX_CHOICE_OPTIONS}")
         keys = [f"o{option['index']}" for option in options]
@@ -237,23 +261,34 @@ class JevAgent:
         shuffled = list(keys)
         self.rng.shuffle(shuffled)
         criteria = {key: describe_option(by_key[key]) for key in shuffled}
-        text = instructions(view, kind, prompt)
-        state = jev_state(view, kind=kind, prompt=prompt)
-        question = typesafe.choice(text, criteria)
+        text = instructions(view, kind, prompt, simulated)
+        state = json.loads(jev_state(view, kind=kind, prompt=prompt))
+        # Only a simulated decision with at least one outcome is scored; the rest is a plain choice.
+        scored = [key for key in keys if simulated and by_key[key].get("outcome") is not None]
+        questions = {"action": typesafe.choice(text, criteria)}
+        if scored:
+            state["candidates"] = {
+                key: {"action": describe_option(by_key[key]), "outcome": by_key[key].get("outcome")} for key in keys
+            }
+            for key in scored:
+                questions[f"s{by_key[key]['index']}"] = typesafe.score(
+                    f"How good is your position after action {key}, compared with the other candidates?", SCORE_LEVELS)
         # What Jev is shown, kept for the decision trace (#72).
         trace = {
             "instructions": text,
-            "state": json.loads(state),
+            "state": state,
             "options": [
-                {"index": by_key[key]["index"], "label": by_key[key]["label"], "facts": list(by_key[key].get("facts") or [])}
+                {"index": by_key[key]["index"], "label": by_key[key]["label"], "facts": list(by_key[key].get("facts") or []),
+                 **({"outcome": by_key[key].get("outcome")} if simulated else {})}
                 for key in shuffled
             ],
             "probabilities": {},
+            "scores": {},
             "latency_ms": None,
         }
         started = time.monotonic()
         try:
-            response = self.ask(state, {"action": question}, model=self.model)
+            response = self.ask(json.dumps(state, separators=(",", ":"), ensure_ascii=False), questions, model=self.model)
             picked, confidence, probabilities = typesafe.read_choice(response["answers"].get("action"), by_key)
         except (typesafe.TypeSafeError, KeyError, TypeError, AttributeError) as exc:
             logger.warning("Jev agent (%s) delegated to Forge's AI: %s", self.model, exc)
@@ -263,21 +298,40 @@ class JevAgent:
         trace["probabilities"] = {
             str(by_key[key]["index"]): round(p, 4) for key, p in probabilities.items() if key in by_key
         }
+        scores = self._scores(response["answers"], by_key, scored)
+        trace["scores"] = {str(by_key[key]["index"]): round(score, 4) for key, score in scores.items()}
+        if scores:
+            picked = self._best(scores, picked, probabilities)
         top = tuple(
             (by_key[key]["label"], p)
             for key, p in sorted(probabilities.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_PROBABILITIES]
             if key in by_key
         )
-        return replace(self.gate(by_key[picked]["index"], confidence, top, response.get("model", self.model)), trace=trace)
+        return Decision(
+            by_key[picked]["index"], confidence=confidence, probabilities=top, model=response.get("model", self.model),
+            scores=tuple((by_key[key]["label"], score) for key, score in scores.items()), trace=trace,
+        )
 
-    def gate(self, choice: int, confidence: float, top, model: str) -> Decision:
-        """The confidence gate: the one place an uncertain decision is handed over (#44)."""
-        if confidence < self.min_confidence:
-            return delegate(
-                "low_confidence",
-                f"low confidence {confidence:.2f} (below {self.min_confidence:.2f})",
-                confidence=confidence,
-                probabilities=top,
-                model=model,
-            )
-        return Decision(choice, confidence=confidence, probabilities=top, model=model)
+    @staticmethod
+    def _scores(answers: dict, by_key: dict, scored: list) -> dict:
+        """``{option key: score}`` for the score questions Jev answered; a missing or malformed one is skipped."""
+        scores = {}
+        for key in scored:
+            answer = answers.get(f"s{by_key[key]['index']}")
+            if answer is None:
+                continue
+            try:
+                scores[key], _, _ = typesafe.read_score(answer)
+            except typesafe.TypeSafeError as exc:
+                logger.warning("Jev agent: unreadable score for %s: %s", key, exc)
+        return scores
+
+    @staticmethod
+    def _best(scores: dict, picked: str, probabilities: dict) -> str:
+        """The best-scored option; ties within TIE go to the choice's probability. An
+        option without a score wins only when the choice gives it more than a half."""
+        if picked not in scores and probabilities.get(picked, 0.0) > 0.5:
+            return picked
+        best = max(scores.values())
+        tied = [key for key, score in scores.items() if score >= best - TIE]
+        return max(tied, key=lambda key: (probabilities.get(key, 0.0), -int(key[1:])))

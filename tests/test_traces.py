@@ -66,11 +66,11 @@ def test_every_jev_decision_has_a_trace_linked_to_its_event(user, fake_forge, je
 
 @pytest.mark.django_db
 def test_a_delegated_decision_is_traced_as_delegated(user, fake_forge, jev):
-    jev.confidence = 0.05
+    jev.fail = "HTTP 503"
     match = _played(user, agents=("jev", "forge_ai"))
     traces = list(match.traces.all())
     assert traces and all(t.outcome == "delegated" and t.choice is None for t in traces)
-    assert all(t.fallback_kind == "low_confidence" and t.event.kind == "fallback" for t in traces)
+    assert all(t.fallback_kind == "error" and t.event.kind == "fallback" for t in traces)
 
 
 @pytest.mark.django_db

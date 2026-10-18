@@ -23,6 +23,8 @@ class Decision:
     confidence: float | None = None
     probabilities: tuple[tuple[str, float], ...] = ()
     model: str = ""
+    # On a simulated decision: Jev's score (0–6) of the position each option leads to, by label.
+    scores: tuple[tuple[str, float], ...] = ()
     # The play the seat asked for just before, which Forge did not carry out:
     # the same decision came back, and that option was left out of it.
     failed_play: str = ""
@@ -44,6 +46,8 @@ class Decision:
             data["confidence"] = round(self.confidence, 4)
         if self.probabilities:
             data["probabilities"] = [{"label": label, "p": round(p, 4)} for label, p in self.probabilities]
+        if self.scores:
+            data["scores"] = [{"label": label, "score": round(score, 3)} for label, score in self.scores]
         if self.model:
             data["model"] = self.model
         if self.reasoning:
@@ -65,11 +69,13 @@ def delegate(kind: str, reason: str, **extra) -> Decision:
 
 
 class Agent(Protocol):
-    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "") -> Decision:
+    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "",
+               simulated: bool = False) -> Decision:
         """Picks one of ``options`` given what the seat can see (``view``).
 
         All of it is the bridge's decision: the numbered ``options`` (``index``,
-        ``label``, ``facts``), the seat's filtered ``view``, the decision
-        ``kind`` (priority, attack, block, target…) and Forge's ``prompt``.
+        ``label``, ``facts`` and, when ``simulated``, the ``outcome`` Forge
+        simulated for each), the seat's filtered ``view``, the decision ``kind``
+        (priority, attack, block, target…) and Forge's ``prompt``.
         """
         ...

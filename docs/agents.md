@@ -75,15 +75,20 @@ One Jev request per decision:
   mapped back by key, because Jev leans toward the first option and Forge's first is
   always "Pass" or "Done".
 
-`gate()` is the one place an uncertain decision is handed over: below
-`MIN_CONFIDENCE` (0.2) the agent delegates with `low_confidence`, keeping
-Jev's confidence and top options in the fallback's meta. Jev's confidence measures
-how peaked its distribution is, not the chosen option's probability. Measured on
-Forge decisions (a Modern Burn seat against Forge's AI, 23 decisions, jev-1.13):
-median 0.38, quartiles 0.20 / 0.82; 0.2 hands over 17% of decisions (near-ties
-between two burn spells), 0.4 would hand over half — the same shape as on the old
-Python kernel (222 decisions, median ~0.4). A missing key, a transport error, a malformed answer
-or one naming no offered option delegates with `error`.
+**Simulated decisions.** When the bridge's decision carries `simulated: true` and at least
+one option has an `outcome` (a whole attack, block or play, with the position Forge reached
+on a copy of the game, see [Forge](forge.md)), the same request also asks one `score`
+question per outcome ("How good is your position after action o3?", on `SCORE_LEVELS`: seven
+generic levels from `lost` to `won`, score 0–6) and the state gains `candidates` (each
+option's description and `outcome`). The pick is the best-scored option; options within
+`TIE` (0.1) of the best go to the `choice`'s probability, and an option without an outcome
+wins only when the `choice` gives it more than a half. The scores travel on the event
+(`meta.scores`) and the trace (`scores`). Without outcomes the decision is a plain `choice`.
+
+**No confidence gate.** Jev always plays its own pick: a low confidence is recorded, not
+handed over (the gate measured on 2026-10-17 delegated 22% of the decisions to Forge's AI,
+which the benchmark then measured instead of Jev). A missing key, a transport error, a
+malformed answer or one naming no offered option delegates with `error`.
 
 **Metering** happens in the worker (`playtest.workers.decide`) for agents marked
 `metered` (Jev): past `MAX_AGENT_CALLS` (400) for the seat or

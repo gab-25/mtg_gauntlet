@@ -164,17 +164,14 @@ def test_a_jev_match_stores_confidence_probabilities_and_model_on_every_decision
     assert summary["confidence"]["median"] == 0.9 and summary["decisions"]["agent"] > 0
 
 
-def test_low_confidence_delegates_with_jevs_distribution(user, fake_forge, jev):
+def test_doubt_is_played_not_delegated(user, fake_forge, jev):
     jev.confidence = 0.05
     match = _play(_match(user, agents=("jev", "forge_ai")))
     assert match.status == Match.Status.FINISHED, match.error
-    fallbacks = list(match.events.filter(kind="fallback", seat_position=0))
-    assert fallbacks and not match.events.filter(kind="decision", seat_position=0).exists()
-    payload = fallbacks[0].payload
-    assert payload["reason"] == "delegate" and payload["fallback_kind"] == "low_confidence"
-    assert payload["confidence"] == 0.05 and payload["probabilities"]
-    assert match.summary["seats"][0]["fallbacks"] == {"low_confidence": len(fallbacks)}
-    assert match.summary["seats"][0]["confidence"]["low"] == len(fallbacks)
+    assert not match.events.filter(kind="fallback", seat_position=0).exists()
+    decisions = list(match.events.filter(kind="decision", seat_position=0))
+    assert decisions and all(e.payload["confidence"] == 0.05 for e in decisions)
+    assert match.summary["seats"][0]["fallbacks"] == {}
 
 
 def test_an_unreachable_model_delegates_and_the_match_goes_on(user, fake_forge, jev):
@@ -339,3 +336,27 @@ def test_a_match_deleted_before_its_job_starts_is_ignored(user, fake_forge):
     match_id = match.id
     match.delete()
     runner.run_match(match_id)  # no error
+
+
+@pytest.mark.django_db
+def test_the_worker_passes_simulated_to_the_agent(user):
+    from playtest.agents.base import Decision
+
+    from .factories import make_match
+    from .fakeforge import sample_decision
+
+    class Recorder:
+        def __init__(self):
+            self.kwargs = None
+
+        def choose(self, view, options, **kwargs):
+            self.kwargs = kwargs
+            return Decision(0)
+
+    agent = Recorder()
+    entry = workers.SeatAgent(agent)
+    decision = sample_decision(simulated=True)
+    workers._ask(make_match(user), entry, decision, decision["options"])
+    assert agent.kwargs["simulated"] is True
+    workers._ask(make_match(user), entry, sample_decision(), decision["options"])
+    assert agent.kwargs["simulated"] is False

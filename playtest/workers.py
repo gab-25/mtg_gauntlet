@@ -174,7 +174,8 @@ def _ask(match: Match, entry: SeatAgent, decision: dict, options: list[dict]) ->
             return delegate("budget", spent)
         entry.calls += 1
     return entry.agent.choose(
-        decision["view"], options, kind=decision.get("kind", ""), prompt=decision.get("prompt", "")
+        decision["view"], options, kind=decision.get("kind", ""), prompt=decision.get("prompt", ""),
+        simulated=bool(decision.get("simulated", False)),
     )
 
 

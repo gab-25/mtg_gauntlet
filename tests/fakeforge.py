@@ -337,8 +337,24 @@ class FakeForge:
             self.cond.notify_all()
 
 
-def sample_decision(kind: str = "attack", options=None) -> dict:
-    """A bridge decision for the agent tests: Red (seat 0) attacking Green."""
+def _outcome(opp_life, lost=(), gained=(), hand=(5, 5)):
+    return {
+        "you": {"name": "Red", "life": [20, 20], "hand": list(hand), "graveyard": [1, 1], "lost": list(lost), "gained": list(gained), "changed": []},
+        "opponents": [{"name": "Green", "life": list(opp_life), "hand": [5, 5], "graveyard": [0, 0], "lost": [], "gained": [], "changed": []}],
+        "summary": "no change" if opp_life[0] == opp_life[1] else f"Green: {opp_life[0]} → {opp_life[1]} life",
+    }
+
+
+SIMULATED_ATTACK = [
+    ("No attack", [], _outcome((20, 20))),
+    ("Attack with Bear #3 (3/3) -> Player Green (20 life)", ["Bear #3 (3/3): deals 3 damage if unblocked"], _outcome((20, 17))),
+    ("Attack with Goblin #4 (1/1) -> Player Green (20 life)", ["Goblin #4 (1/1): deals 1 damage if unblocked; dies if blocked by: Wall"], _outcome((20, 19))),
+]
+
+
+def sample_decision(kind: str = "attack", options=None, simulated: bool = False) -> dict:
+    """A bridge decision for the agent tests: Red (seat 0) attacking Green. With ``simulated``
+    the options are whole attack plans with outcomes, as a SIMULATE=1 bridge sends them."""
     game = FakeGame(FakeForge(), "modern", 1, [{"name": "Red", "decklist": ""}, {"name": "Green", "decklist": ""}], 12, 20)
     game.turn, game.phase = 3, "COMBAT_DECLARE_ATTACKERS"
     view = game.view(0)
@@ -352,7 +368,7 @@ def sample_decision(kind: str = "attack", options=None) -> dict:
         ("Attack with Bear #3 (3/3) -> Green", ["deals 3 damage if unblocked"]),
         ("Attack with Goblin #4 (1/1) -> Green", ["dies if blocked by: Wall"]),
     ]
-    return {
+    decision = {
         "decision_id": "d1",
         "game_id": game.id,
         "seat": 0,
@@ -361,3 +377,9 @@ def sample_decision(kind: str = "attack", options=None) -> dict:
         "view": view,
         "options": [{"index": i, "label": label, "facts": facts} for i, (label, facts) in enumerate(options)],
     }
+    if simulated:
+        decision["prompt"] = "Declare your attack"
+        decision["simulated"] = True
+        decision["options"] = [{"index": i, "label": label, "facts": facts, "outcome": outcome}
+                               for i, (label, facts, outcome) in enumerate(SIMULATED_ATTACK)]
+    return decision

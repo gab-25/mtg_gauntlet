@@ -440,7 +440,7 @@ def test_someone_elses_deck_cannot_be_checked(client, django_user_model, fake_fo
 
 
 @pytest.mark.django_db
-def test_a_jev_match_on_the_fake_bridge_shows_confidence_and_low_confidence_fallbacks(client, user, fake_forge, monkeypatch):
+def test_a_jev_match_on_the_fake_bridge_shows_confidence_and_fallbacks(client, user, fake_forge, monkeypatch):
     from playtest.agents import typesafe
 
     from .test_jev_agent import StubJev
@@ -453,11 +453,11 @@ def test_a_jev_match_on_the_fake_bridge_shows_confidence_and_low_confidence_fall
     page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
     assert "0.90" in page and "runner-up:" in page
 
-    monkeypatch.setattr(typesafe, "system_one", StubJev(confidence=0.05))
+    monkeypatch.setattr(typesafe, "system_one", StubJev(fail="HTTP 503"))
     client.post("/playtests/create", _form("duel", decks))
-    unsure = Match.objects.exclude(pk=match.pk).get()
-    page = client.get(f"/playtests/{unsure.playtest_id}/matches/{unsure.id}?tab=log").content.decode()
-    assert "decided by Forge AI (delegate)" in page and "low_confidence" in page and "Jev leaned to:" in page
+    unreachable = Match.objects.exclude(pk=match.pk).get()
+    page = client.get(f"/playtests/{unreachable.playtest_id}/matches/{unreachable.id}?tab=log").content.decode()
+    assert "decided by Forge AI (delegate)" in page and "error" in page
 
 
 @pytest.mark.django_db
