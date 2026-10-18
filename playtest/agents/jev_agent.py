@@ -63,10 +63,6 @@ KIND_LINES = {
 # decision at a time and cannot tell that a pass in the second main phase ends
 # the turn, or that mana spent in the upkeep is gone for the main phase.
 STACK_LINE = "The stack is not empty: passing lets the top of the stack resolve; respond only if it is worth answering."
-OPPONENT_TURN_LINE = (
-    "It is your opponent's turn: only instants, cards with flash and abilities can be used now; "
-    "use them to answer what your opponent does, otherwise pass."
-)
 OWN_STEP_LINES = {
     "UPKEEP": "Your turn has just begun: passing moves on to your first main phase, where you can play a land and "
               "cast any spell; spend mana now only for what must happen now.",
@@ -92,7 +88,9 @@ def step_line(view: dict, kind: str) -> str:
     if view.get("stack"):
         return " " + STACK_LINE
     if view.get("active_seat") != view["you"]["seat"]:
-        return " " + OPPONENT_TURN_LINE
+        # No line on the opponent's turn: one saying "otherwise pass" made Jev stop
+        # answering with instants (benchmark of 2026-10-17).
+        return ""
     phase = view.get("phase") or ""
     line = OWN_STEP_LINES.get("COMBAT" if phase.startswith("COMBAT") else phase, "")
     return " " + line if line else ""

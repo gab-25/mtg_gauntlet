@@ -89,7 +89,9 @@ def test_a_priority_decision_says_what_passing_means_in_this_step():
     assert "play a land if you have not" in text("MAIN1")
     assert "act only to change this combat" in text("COMBAT_DECLARE_ATTACKERS")
     assert "passing with an empty stack ends your turn" in text("MAIN2")
-    assert "your opponent's turn" in text("MAIN1", active=1) and "instant" in text("MAIN1", active=1)
+    # The opponent's turn gets no step line: one telling Jev to pass unless answering made it
+    # passive with instants (benchmark of 2026-10-17).
+    assert "otherwise pass" not in text("MAIN1", active=1) and "You have priority" in text("MAIN1", active=1)
     assert "passing lets the top of the stack resolve" in text("MAIN1", stack=[{"text": "Shock"}])
     # Only priority decisions get a step line.
     assert "ends your turn" not in instructions(_priority_view("MAIN2"), "attack", "Declare attackers")

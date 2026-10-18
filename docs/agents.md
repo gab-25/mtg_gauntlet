@@ -63,7 +63,8 @@ One Jev request per decision:
 - **one `choice` named `action`**: its instructions name the seat, the format, the
   turn, whose turn and phase it is and the goal, plus a line per decision kind
   (`KIND_LINES`), a line saying what passing means where the game stands on a priority
-  decision (`step_line`: a non-empty stack, the opponent's turn, or the own step —
+  decision (`step_line`: a non-empty stack or the own step; nothing on the opponent's turn, where a
+  line telling Jev to pass unless answering made it passive with instants —
   upkeep and draw move on to the main phase, the second main phase ends the turn with
   its mana), a line for prompts whose rules text hides the stake (`prompt_line`: "No"
   to the command zone leaves the commander in the graveyard or exile), and Forge's
