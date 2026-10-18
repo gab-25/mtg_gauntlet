@@ -72,7 +72,7 @@ def test_a_deck_is_tested_against_each_opponent(client, user, fake_forge):
     assert [m.seed for m in matches] == [7, 8]
     for match, opponent in zip(matches, opponents):
         assert match.status == Match.Status.FINISHED, match.error
-        assert [(s.position, s.deck_id, s.agent) for s in match.seats.all()] == [(0, tested.id, "jev"), (1, opponent.id, "jev")]
+        assert [(s.position, s.deck_id, s.agent) for s in match.seats.all()] == [(0, tested.id, "forge_ai"), (1, opponent.id, "forge_ai")]
     assert [g["seed"] for g in fake_forge.created] == [7, 8]
 
     page = client.get(f"/playtests/{playtest.id}").content.decode()
@@ -145,13 +145,12 @@ def test_someone_elses_deck_cannot_be_tested_or_played_against(client, user, dja
 
 
 @pytest.mark.django_db
-def test_a_match_needs_an_api_key_since_jev_plays_every_seat(client, user, monkeypatch):
+def test_a_playtest_starts_without_an_openrouter_key(client, user, fake_forge, monkeypatch):
+    """Forge's AI plays every seat: Jev, and its key, are for the benchmark only."""
     monkeypatch.delenv("OPENROUTER_API_KEY")
     decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
     response = client.post("/playtests/create", _form("duel", decks))
-    assert response.status_code == 422
-    assert b"OPENROUTER_API_KEY" in response.content
-    assert b"no playtest can start" in client.get("/playtests/new").content
+    assert response.status_code == 302 and Match.objects.filter(owner=user).exists()
 
 
 @pytest.mark.django_db
@@ -229,16 +228,16 @@ def test_deleting_a_running_match_aborts_its_game(client, user, fake_forge):
 def test_the_form_offers_no_agent_choice(client):
     content = client.get("/playtests/new").content.decode()
     assert 'name="seat-0-agent"' not in content
-    assert "Jev on every seat" in content
+    assert "Forge's AI on every seat" in content and "OPENROUTER_API_KEY" not in content
 
 
 @pytest.mark.django_db
-def test_a_posted_agent_is_ignored_every_seat_is_jev(client, user, fake_forge):
+def test_a_posted_agent_is_ignored_every_seat_is_forges_ai(client, user, fake_forge):
     decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks, **{"seat-0-agent": "forge_ai", "seat-1-agent": "random"}))
+    client.post("/playtests/create", _form("duel", decks, **{"seat-0-agent": "jev", "seat-1-agent": "random"}))
     match = Match.objects.get(owner=user)
-    assert list(match.seats.values_list("agent", flat=True)) == ["jev", "jev"]
-    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["external", "external"]
+    assert list(match.seats.values_list("agent", flat=True)) == ["forge_ai", "forge_ai"]
+    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["forge_ai", "forge_ai"]
 
 
 def _finished(user, **seat_fields):
@@ -309,26 +308,20 @@ def test_a_finished_match_shows_its_summary(client, user, fake_forge):
     client.post("/playtests/create", _form("duel", decks))
     played = Match.objects.exclude(pk=match.pk).get()
     page = client.get(f"/playtests/{played.playtest_id}/matches/{played.id}").content.decode()
-    assert "Match summary" in page and "Spells cast" in page and "Fallbacks" in page and "Failed plays" in page
-    assert "Automatic for every seat: mana payment" in page and "assignCombatDamage" in page
-    assert "% Jev" in page
+    assert "Match summary" in page and "Spells cast" in page and "Decisions" in page
+    assert "all Forge AI" in page and "% Jev" not in page
 
 
 @pytest.mark.django_db
-def test_a_constructed_match_between_two_jev_agents(client, user, fake_forge, monkeypatch):
-    from playtest.agents import typesafe
-
+def test_a_constructed_match_is_played_by_forges_ai_on_both_seats(client, user, fake_forge):
     from .factories import make_constructed_deck
-    from .test_jev_agent import StubJev
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(typesafe, "system_one", StubJev())
     decks = [make_constructed_deck(user, name=f"Goblins {i}") for i in range(2)]
     client.post("/playtests/create", _form("modern", decks))
     match = Match.objects.get(owner=user)
     assert match.status == Match.Status.FINISHED, match.error
-    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["external", "external"]
-    assert set(match.events.filter(kind="decision").values_list("seat_position", flat=True)) == {0, 1}
+    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["forge_ai", "forge_ai"]
+    assert not match.events.filter(kind="decision").exists() and not match.traces.exists()
 
 
 @pytest.mark.django_db
@@ -441,21 +434,19 @@ def test_someone_elses_deck_cannot_be_checked(client, django_user_model, fake_fo
 
 @pytest.mark.django_db
 def test_a_jev_match_on_the_fake_bridge_shows_confidence_and_low_confidence_fallbacks(client, user, fake_forge, monkeypatch):
+    """Jev seats exist only through the benchmark; their pages still show confidence and fallbacks."""
     from playtest.agents import typesafe
 
     from .test_jev_agent import StubJev
+    from .test_runner import _match, _play
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(typesafe, "system_one", StubJev(confidence=0.9))
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks))
-    match = Match.objects.get(owner=user)
+    match = _play(_match(user, agents=("jev", "jev")))
     page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
     assert "0.90" in page and "runner-up:" in page
 
     monkeypatch.setattr(typesafe, "system_one", StubJev(confidence=0.05))
-    client.post("/playtests/create", _form("duel", decks))
-    unsure = Match.objects.exclude(pk=match.pk).get()
+    unsure = _play(_match(user, agents=("jev", "jev"), seed=6))
     page = client.get(f"/playtests/{unsure.playtest_id}/matches/{unsure.id}?tab=log").content.decode()
     assert "decided by Forge AI (delegate)" in page and "low_confidence" in page and "Jev leaned to:" in page
 
@@ -486,7 +477,7 @@ def test_the_jev_model_cannot_be_set_from_the_form(client, user, fake_forge, jev
     client.post("/playtests/create", _form("duel", decks, **{"seat-0-model": "openai/gpt-5"}))
     match = Match.objects.get(owner=user)
     assert list(match.seats.values_list("model", flat=True)) == ["", ""]
-    assert {model for _, _, model in jev.requests} == {"~typesafe/jev-latest"}
+    assert not jev.requests  # Forge's AI played: Jev was never asked
 
 
 def _running_session(user, fake_forge):

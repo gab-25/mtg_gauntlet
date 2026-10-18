@@ -6,16 +6,15 @@ from dataclasses import dataclass
 from decks.formats import FORMATS, playable_formats
 from decks.models import Deck, MetagameDeck
 
-from .agents import typesafe
 from .models import Seat
 
 # An opponent picker value for a metagame deck.
 METAGAME_PREFIX = "metagame:"
-# Every seat of a new match is played by Jev, with ~typesafe/jev-latest
-# (typesafe.MODEL): the user picks decks, not agents or models. The other
-# Seat.Agent values only name the seats of older matches; Forge's AI still
-# takes fallbacks and the decisions the bridge does not expose.
-SEAT_AGENT = Seat.Agent.JEV
+# Every seat of a new playtest is played by Forge's AI: the user picks decks, not
+# agents. Jev (Seat.Agent.JEV) is the experimental agent the benchmark measures
+# (manage.py benchmark --agent jev); on seed 1000 it won 38% of the games Forge's
+# AI won 60% of (2026-10-18, docs/agents.md), so it plays no playtest seat.
+SEAT_AGENT = Seat.Agent.FORGE_AI
 # The most opponents one session plays: each match is a few hundred Jev calls.
 MAX_OPPONENTS = 10
 # The most games against one opponent, and in a whole session (opponents ×
@@ -118,9 +117,6 @@ def parse_playtest_form(post, user) -> tuple[PlaytestForm | None, list[str]]:
             f"A playtest plays at most {MAX_GAMES} games; "
             f"{len(values)} opponent{'s' if len(values) != 1 else ''} × {games} games is {len(values) * games}."
         )
-
-    if not typesafe.api_key():
-        errors.append("Jev plays every seat and needs an OpenRouter API key: set OPENROUTER_API_KEY.")
 
     if errors:
         return None, errors

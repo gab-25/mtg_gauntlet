@@ -63,7 +63,7 @@ Without a deck or a format the step only asks for a deck.
             <div class="summary-row"><span>Deck</span><span translate="no">{{ form_deck.name|default:"—" }}</span></div>
             <div class="summary-row"><span>Format</span><span>{% if format_rules %}{{ format_rules.label }} · {{ format_rules.starting_life }} life{% else %}—{% endif %}</span></div>
             <div class="summary-row"><span>Games</span><span class="num" data-chosen-count>{{ chosen_games }}</span></div>
-            <div class="summary-row"><span>Players</span><span>Jev on every seat</span></div>
+            <div class="summary-row"><span>Players</span><span>Forge's AI on every seat</span></div>
         </div>
         {% if not playable %}
         <div class="alert alert-error">{{ format_rules.label }} cannot be played yet: the Forge engine seats two players ({{ playable_labels|join:", " }}).</div>
@@ -71,12 +71,9 @@ Without a deck or a format the step only asks for a deck.
         {% for name in refused %}
         <div class="alert alert-warn"><span translate="no">{{ name }}</span> has cards Forge does not know: its match will be refused.</div>
         {% endfor %}
-        {% if not jev_available %}
-        <div class="alert alert-warn">No OPENROUTER_API_KEY is set, so no playtest can start.</div>
-        {% endif %}
         <button type="submit" form="new-playtest" class="btn btn-primary btn-block" data-start data-blocked="{% if playable %}false{% else %}true{% endif %}"{% if not chosen_count or not form_deck or not playable %} disabled{% endif %}>
             {% if chosen_count %}Start {{ chosen_games }} game{{ chosen_games|pluralize }}{% else %}Pick at least one opponent{% endif %}
         </button>
-        <p class="field-help">Forge plays the rules; Jev (<span class="font-mono">{{ jev_model }}</span>) picks among Forge's options and hands a decision to Forge's AI when unsure.</p>
+        <p class="field-help">Forge plays the rules and its AI plays every seat, so a result measures the decks, not a model.</p>
     </div>
 </aside>

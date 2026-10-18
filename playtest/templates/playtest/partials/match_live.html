@@ -41,7 +41,7 @@ the trigger and polling stops.
             {% if seat.metagame_deck %}<div class="faint">Metagame · {{ seat.metagame_deck.get_source_display }} · {{ seat.metagame_deck.fetched_at|date:"j M Y" }}</div>{% endif %}
             <div class="seat-stats">
                 <div class="seat-stat">
-                    <span class="seat-stat-value">{% if seat.agent == 'forge_ai' %}0%{% elif stats.decisions.agent_share is not None %}{{ stats.decisions.agent_share }}%{% else %}—{% endif %}</span>
+                    <span class="seat-stat-value">{% if seat.agent == 'forge_ai' %}100%{% elif stats.decisions.agent_share is not None %}{{ stats.decisions.agent_share }}%{% else %}—{% endif %}</span>
                     <span class="seat-stat-label">decided by {{ seat.get_agent_display }}</span>
                 </div>
                 <div class="seat-stat">

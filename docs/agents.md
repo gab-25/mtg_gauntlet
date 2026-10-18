@@ -4,14 +4,18 @@ An agent is whatever plays a seat. It never decides what is legal: Forge lists t
 options of each decision (see [Forge](forge.md)), and the agent picks one of
 them by index, or delegates the decision to Forge's AI.
 
-**Every seat of a new match is Jev** (`playtest.forms.SEAT_AGENT`): the new-playtest form
-offers decks, not agents or models, and ignores any posted agent or model: every seat
-uses `~typesafe/jev-latest` (`typesafe.MODEL`). Jev is the only agent; `forge_ai` survives for older seats.
+**Every seat of a new playtest is Forge's AI** (`playtest.forms.SEAT_AGENT`): the
+new-playtest form offers decks, not agents, ignores any posted agent, and needs no API
+key. Jev is the experimental agent: `manage.py benchmark --agent jev` plays it against
+Forge's AI on fixed seeds. Measured on 2026-10-18 (match `2de19f14`, seed 1000, 20 games
+per deck): Jev 38%, Forge's AI against itself 60%; neither step-aware instructions, an
+LLM on the hard decisions (#44), nor simulated outcomes (rated or as facts) moved it, so
+Jev plays no playtest seat until the model changes.
 
 | `Seat.Agent` | Class | Network | Notes |
 |---|---|---|---|
-| `jev` | `JevAgent` | OpenRouter | Every new seat. One Jev `choice` per decision; logs its confidence. |
-| `forge_ai` | — | none | Older matches only. Such a seat is created with `controller: "forge_ai"` and never reaches a worker. |
+| `forge_ai` | — | none | Every playtest seat. Created with `controller: "forge_ai"`; never reaches a worker. |
+| `jev` | `JevAgent` | OpenRouter | Benchmark seats (and matches before 2026-10-18). One Jev `choice` per decision; logs its confidence. |
 
 ## The interface
 
@@ -168,7 +172,7 @@ against OpenRouter's `POST /api/v1/systemone`, which serves Jev in TypeSafe's na
 `read_choice(answer, options)` checks an answer names an offered option. Every
 failure is a `TypeSafeError`.
 
-Without `OPENROUTER_API_KEY` the new-playtest form refuses to start: Jev plays every seat.
+`OPENROUTER_API_KEY` is needed only to benchmark Jev; a playtest starts without it.
 
 ## Adding an agent
 
@@ -178,8 +182,9 @@ Without `OPENROUTER_API_KEY` the new-playtest form refuses to start: Jev plays e
 2. Add a value to `playtest.models.Seat.Agent` (a migration) and an icon in
    `Seat.agent_icon`.
 3. Build it in `playtest.workers.build_agent` from the `Seat` and the match seed.
-4. To let new matches use it, change `SEAT_AGENT` in `playtest/forms.py` (today every
-   seat is Jev and the form offers no choice).
+4. To let new playtests use it, change `SEAT_AGENT` in `playtest/forms.py` (today every
+   seat is Forge's AI and the form offers no choice); to benchmark it, add it to the
+   `--agent` choices of `manage.py benchmark`.
 5. Test it without network: pass a fake `ask`, or monkeypatch
    `typesafe.system_one` / `requests.post`, and play it against the `fake_forge`
    fixture (`tests/test_jev_agent.py`, `tests/test_runner.py`).

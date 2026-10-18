@@ -37,12 +37,11 @@ hands the decision back to Forge's AI.
 
   A constructed deck lists its sideboard under a `Sideboard` header; the sideboard is
   imported and checked, but a match is a single game played with the main deck.
-- **Jev on every seat**: Jev picks each of Forge's options through OpenRouter, and its
-  confidence and runner-up options are logged. There is no agent to choose: both seats
-  are Jev, always on `~typesafe/jev-latest`. Forge's own AI never plays a seat;
-  it only takes fallbacks and what the bridge does not expose. A seat that is unsure
-  (confidence below 0.2) or cannot reach Jev hands that decision to Forge's AI,
-  with the reason logged, so a match never stalls on a model.
+- **Forge's AI on every seat**: a playtest is played by Forge's own AI on both seats, so
+  its result measures the decks, costs nothing and runs at the engine's speed. Jev
+  (TypeSafe's System One model, through OpenRouter) is the experimental agent the
+  benchmark measures against Forge's AI: on 2026-10-18 it won 38% of the games Forge's
+  AI won 60% of, so it plays no playtest seat ([agents](docs/agents.md)).
 - **Coverage**: Forge either knows a card or the match is refused, naming the card.
   Each seat lists the cards Forge knows but cannot play fully. The deck page checks a
   deck on demand (**Check with Forge**), never on page view, and keeps the answer:
@@ -149,7 +148,7 @@ The project uses [`uv`](https://docs.astral.sh/uv/).
 ### Docker Compose
 
 ```bash
-export OPENROUTER_API_KEY="..."       # required to start a match: Jev plays every seat
+export OPENROUTER_API_KEY="..."       # only for the Jev benchmark; playtests need no key
 docker compose up --build
 docker compose exec web python manage.py createsuperuser
 ```
