@@ -360,3 +360,19 @@ def test_the_worker_passes_simulated_to_the_agent(user):
     assert agent.kwargs["simulated"] is True
     workers._ask(make_match(user), entry, sample_decision(), decision["options"])
     assert agent.kwargs["simulated"] is False
+
+
+@pytest.mark.django_db
+def test_a_match_on_a_simulating_bridge_is_played_through_scores(user, simulating_forge, jev):
+    from .test_traces import _played
+
+    match = _played(user)
+    assert match.status == Match.Status.FINISHED, match.error
+    for kind in ("attack", "block", "priority"):
+        traces = list(match.traces.filter(kind=kind))
+        assert traces, kind
+        assert all(t.scores for t in traces), kind
+        assert all("outcome" in o for t in traces for o in t.options), kind
+    attack = match.traces.filter(kind="attack").first()
+    assert attack.options[0]["label"] == "No attack" and attack.options[1]["outcome"]["opponents"][0]["life"][1] < 20
+    assert not match.traces.filter(fallback_kind="low_confidence").exists()

@@ -44,3 +44,17 @@ def fake_forge(monkeypatch):
     # A fake game moves only when answered: no need to wait for more.
     monkeypatch.setattr(runner, "SELF_SERVE_WAIT", 0.01)
     return fake
+
+
+@pytest.fixture
+def simulating_forge(monkeypatch):
+    """A fake bridge with ``SIMULATE=1``: attack, block and priority decisions are whole
+    actions with outcomes, as :mod:`tests.fakeforge` fakes them."""
+    from playtest import forge, runner
+
+    from .fakeforge import FakeForge
+
+    fake = FakeForge(simulate=True)
+    monkeypatch.setattr(forge, "client", lambda: fake)
+    monkeypatch.setattr(runner, "SELF_SERVE_WAIT", 0.01)
+    return fake

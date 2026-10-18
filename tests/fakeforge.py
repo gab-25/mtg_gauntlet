@@ -112,6 +112,51 @@ class FakeGame:
         self.next_card += 1
         return self.next_card
 
+    def _outcome(self, seat: int, you_life: int, opp_life: int, gained=()) -> dict:
+        other = 1 - seat
+        you = {"name": self.names[seat], "life": [self.life[seat], you_life], "hand": [5, 5], "graveyard": [0, 0],
+               "lost": [], "gained": list(gained), "changed": []}
+        opp = {"name": self.names[other], "life": [self.life[other], opp_life], "hand": [5, 5], "graveyard": [0, 0],
+               "lost": [], "gained": [], "changed": []}
+        parts = []
+        if opp["life"][0] != opp["life"][1]:
+            parts.append(f"{self.names[other]}: {opp['life'][0]} → {opp['life'][1]} life")
+        mine = ([f"{you['life'][0]} → {you['life'][1]} life"] if you["life"][0] != you["life"][1] else []) + (
+            [f"gains {', '.join(gained)}"] if gained else [])
+        if mine:
+            parts.append("you: " + ", ".join(mine))
+        return {"you": you, "opponents": [opp], "summary": "; ".join(parts) or "no change"}
+
+    def _simulate(self, seat: int, kind: str, options: list) -> list[dict] | None:
+        """The options as a SIMULATE=1 bridge would send them: whole actions with outcomes,
+        at the same indexes, so the script's answers keep their meaning."""
+        other = 1 - seat
+        life, opp = self.life[seat], self.life[other]
+        same = self._outcome(seat, life, opp)
+        if kind == "attack":
+            attacker = options[1][0].split(" -> ")[0].removeprefix("Attack with ")
+            plans = [("No attack", [], same),
+                     (f"Attack with {attacker} -> Player {self.names[other]} ({opp} life)",
+                      [f"{attacker}: deals 3 damage if unblocked"], self._outcome(seat, life, opp - 3))]
+        elif kind == "block":
+            plans = [("No block", [], self._outcome(seat, life - 3, opp)),
+                     ("Block Bear #0 (3/3) with Wall #0 (0/4)", ["Wall #0 (0/4): your blocker survives; the attacker survives"], same)]
+        elif kind == "priority":
+            plans = []
+            for label, facts in options:
+                if label.startswith("Play "):
+                    plans.append((label, facts, self._outcome(seat, life, opp, gained=["Mountain"])))
+                elif label.startswith("Cast Shock"):
+                    plans.append((f"{label} targeting Player {self.names[other]} ({opp} life)", facts, self._outcome(seat, life, opp - 2)))
+                elif label.startswith("Pass"):
+                    plans.append((label, facts, same))
+                else:
+                    plans.append((label, facts, None))  # a play Forge will not carry out: no outcome
+        else:
+            return None
+        return [{"index": i, "label": label, "facts": list(facts), "outcome": outcome}
+                for i, (label, facts, outcome) in enumerate(plans)]
+
     def _ask(self, seat: int, kind: str, prompt: str, options: list[tuple[str, list[str]]]):
         """Yields a decision for an external seat; returns the chosen index."""
         if self.controllers[seat] == "forge_ai":
@@ -125,6 +170,9 @@ class FakeGame:
             "view": self.view(seat),
             "options": [{"index": i, "label": label, "facts": facts} for i, (label, facts) in enumerate(options)],
         }
+        simulated = self._simulate(seat, kind, options) if self.fake.simulate else None
+        if simulated is not None:
+            decision["options"], decision["simulated"] = simulated, True
         if self.fake.forge_ai_choice is not None:
             decision["forge_ai_choice"] = self.fake.forge_ai_choice(decision)
         answer = yield decision
@@ -235,8 +283,11 @@ class FakeForge:
     priority option whose cast Forge never carries out."""
 
     def __init__(self, *, unknown=(), unsupported=(), max_turns=12, starting_life=20, failing_cast=False,
-                 forge_ai_choice=None):
+                 forge_ai_choice=None, simulate=False):
         self.unknown = set(unknown)
+        # Like the bridge's SIMULATE=1: attack, block and priority decisions are whole
+        # actions with an outcome each (FakeGame._simulate).
+        self.simulate = simulate
         # A function of the decision giving the option Forge's AI would pick (#75);
         # None leaves it out of the lease, like today's bridge.
         self.forge_ai_choice = forge_ai_choice
