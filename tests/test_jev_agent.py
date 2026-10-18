@@ -166,48 +166,37 @@ def test_doubt_no_longer_delegates():
     assert answer.choice is not None and not answer.fallback_kind and answer.confidence == 0.05
 
 
-def _scored(prefer="o0", scores=None, confidence=0.9, decision=None):
-    jev = StubJev(prefer=lambda c: prefer, scores=scores, confidence=confidence)
+def _simulated(prefer="o0", confidence=0.9, decision=None):
+    jev = StubJev(prefer=lambda c: prefer, confidence=confidence)
     return _choose(JevAgent(seed=1, ask=jev), decision or sample_decision(simulated=True)), jev
 
 
-def test_a_simulated_decision_is_scored_and_the_best_outcome_wins():
-    answer, jev = _scored(prefer="o0", scores={"s0": 3.0, "s1": 4.2, "s2": 3.5})
-    assert answer.choice == 1
-    assert dict(answer.scores)["Attack with Bear #3 (3/3) -> Player Green (20 life)"] == 4.2
+def test_a_simulated_decision_is_a_choice_over_actions_with_their_outcomes():
+    """No score questions: Jev rates actions well and positions badly (benchmark of
+    2026-10-18, 38% → 18%), so each option carries its outcome as one more fact."""
+    answer, jev = _simulated(prefer="o1")
+    assert answer.choice == 1 and answer.scores == ()
     [(state, questions, _)] = jev.requests
-    assert set(questions) == {"action", "s0", "s1", "s2"} and questions["s1"]["type"] == "score"
-    assert len(questions["s1"]["criteria"]) == 7 and "o1" in questions["s1"]["instructions"]
+    assert set(questions) == {"action"}
+    criteria = questions["action"]["criteria"]
+    assert criteria["o1"] == "Attack with Bear #3 (3/3) -> Player Green (20 life) — Bear #3 (3/3): deals 3 damage if unblocked → Green: 20 → 17 life"
+    assert criteria["o0"] == "No attack → no change"
     assert json.loads(state)["candidates"]["o1"]["outcome"]["opponents"][0]["life"] == [20, 17]
     assert "Pick your whole attack" in questions["action"]["instructions"]
-    assert answer.meta()["scores"][1] == {"label": "Attack with Bear #3 (3/3) -> Player Green (20 life)", "score": 4.2}
-
-
-def test_ties_go_to_the_choice():
-    answer, _ = _scored(prefer="o2", scores={"s0": 1.0, "s1": 4.0, "s2": 4.05})
-    assert answer.choice == 2
-    answer, _ = _scored(prefer="o1", scores={"s0": 1.0, "s1": 4.0, "s2": 4.05})
-    assert answer.choice == 1
-
-
-def test_a_missing_score_leaves_the_option_to_the_choice():
-    scores = lambda q: {"s0": 2.0, "s1": 4.0}.get(q)  # noqa: E731 - s2 is never answered
-    answer, _ = _scored(prefer="o2", scores=scores, confidence=0.6)
-    assert answer.choice == 2
-    answer, _ = _scored(prefer="o2", scores=scores, confidence=0.4)
-    assert answer.choice == 1
+    assert answer.trace["options"][0]["outcome"] is not None and answer.trace["scores"] == {}
 
 
 def test_a_simulated_decision_without_outcomes_is_a_plain_choice():
     decision = sample_decision(simulated=True)
     for option in decision["options"]:
         option["outcome"] = None
-    answer, jev = _scored(prefer="o2", decision=decision)
+    answer, jev = _simulated(prefer="o2", decision=decision)
     assert answer.choice == 2 and set(jev.requests[0][1]) == {"action"}
+    assert "candidates" not in json.loads(jev.requests[0][0])
 
 
 def test_a_decision_without_the_simulated_key_is_a_plain_choice():
-    answer, jev = _scored(prefer="o1", decision=sample_decision())
+    answer, jev = _simulated(prefer="o1", decision=sample_decision())
     assert answer.choice == 1 and set(jev.requests[0][1]) == {"action"} and answer.scores == ()
     assert "one at a time" in jev.requests[0][1]["action"]["instructions"]
 

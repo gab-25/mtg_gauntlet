@@ -80,15 +80,17 @@ One Jev request per decision:
   mapped back by key, because Jev leans toward the first option and Forge's first is
   always "Pass" or "Done".
 
-**Simulated decisions.** When the bridge's decision carries `simulated: true` and at least
-one option has an `outcome` (a whole attack, block or play, with the position Forge reached
-on a copy of the game, see [Forge](forge.md)), the same request also asks one `score`
-question per outcome ("How good is your position after action o3?", on `SCORE_LEVELS`: seven
-generic levels from `lost` to `won`, score 0–6) and the state gains `candidates` (each
-option's description and `outcome`). The pick is the best-scored option; options within
-`TIE` (0.1) of the best go to the `choice`'s probability, and an option without an outcome
-wins only when the `choice` gives it more than a half. The scores travel on the event
-(`meta.scores`) and the trace (`scores`). Without outcomes the decision is a plain `choice`.
+**Simulated decisions.** When the bridge's decision carries `simulated: true` and options
+with an `outcome` (a whole attack, block or play, with the position Forge reached on a copy
+of the game, see [Forge](forge.md)), each option's description gains its outcome's one-line
+summary (`Attack with Six, Gearhulk -> Player B — … → B: 5 → -7 life, loses the game`) and the
+state gains `candidates` (each option's description and full `outcome`). The decision stays
+one `choice` over actions. Rating the resulting positions instead — one `score` question
+per outcome on a seven-level scale — was measured on 2026-10-18 (seed 1000, 20 games per
+deck): Jev scored passing level with playing a land or a creature in 79% of the cases and
+fell from 38% to 18% against Forge's AI, so the scores are gone; `DecisionTrace.scores`
+stays for the traces of that run. The kind line of a simulated attack or block says it is
+a whole plan (`SIMULATED_KIND_LINES`).
 
 **No confidence gate.** Jev always plays its own pick: a low confidence is recorded, not
 handed over (the gate measured on 2026-10-17 delegated 22% of the decisions to Forge's AI,

@@ -10,10 +10,12 @@ leans toward the first option, and Forge's first option is always "Pass" or
 "Done".
 
 On a decision the bridge simulated (``simulated``: whole attacks, blocks or
-plays, each with the position it leads to), the same request also asks one
-``score`` question per outcome — how good is the position, on a fixed scale
-from "lost" to "won" — and the agent picks the best-scored option, the
-``choice`` breaking ties.
+plays, each with the position it leads to), every option carries its outcome's
+one-line summary as one more fact, and the state lists the candidates with
+their full outcomes. The decision stays a ``choice`` over actions: asked to
+rate the resulting positions instead (a ``score`` per outcome, benchmark of
+2026-10-18), Jev preferred passing to developing its board and fell from 38%
+to 18% against Forge's AI.
 
 The answer's confidence and distribution travel with the decision to the
 bridge's event. Jev always answers for itself: only when it cannot be
@@ -34,20 +36,6 @@ logger = logging.getLogger(__name__)
 
 # How many of Jev's top options a decision keeps for the log.
 TOP_PROBABILITIES = 3
-
-# The scale Jev rates a simulated position on (score question, levels 0–6). Generic on
-# purpose: no format, no card names. Each level is one line Jev reads.
-SCORE_LEVELS = [
-    "lost: you are dead or lose on the spot (life at 0 or less, no way out)",
-    "losing badly: far behind on life and board, the opponent is about to win",
-    "behind: fewer or weaker creatures, less life or fewer cards than the opponent",
-    "even: comparable life, board and cards; nobody is clearly ahead",
-    "ahead: more or better creatures, more life or more cards than the opponent",
-    "winning clearly: a dominant board or the opponent at very low life, hard to lose",
-    "won: the opponent is dead or loses on the spot",
-]
-# Scores this close to the best are a tie, broken by the choice question.
-TIE = 0.1
 
 INSTRUCTIONS = (
     "You play {you} in a game of Magic: The Gathering ({format}), played under the full rules by the "
@@ -266,16 +254,12 @@ class JevAgent:
         criteria = {key: describe_option(by_key[key]) for key in shuffled}
         text = instructions(view, kind, prompt, simulated)
         state = json.loads(jev_state(view, kind=kind, prompt=prompt))
-        # Only a simulated decision with at least one outcome is scored; the rest is a plain choice.
-        scored = [key for key in keys if simulated and by_key[key].get("outcome") is not None]
-        questions = {"action": typesafe.choice(text, criteria)}
-        if scored:
+        # A simulated decision with outcomes: the candidates and what each leads to, in the state too.
+        if simulated and any(by_key[key].get("outcome") is not None for key in keys):
             state["candidates"] = {
                 key: {"action": describe_option(by_key[key]), "outcome": by_key[key].get("outcome")} for key in keys
             }
-            for key in scored:
-                questions[f"s{by_key[key]['index']}"] = typesafe.score(
-                    f"How good is your position after action {key}, compared with the other candidates?", SCORE_LEVELS)
+        questions = {"action": typesafe.choice(text, criteria)}
         # What Jev is shown, kept for the decision trace (#72).
         trace = {
             "instructions": text,
@@ -301,40 +285,10 @@ class JevAgent:
         trace["probabilities"] = {
             str(by_key[key]["index"]): round(p, 4) for key, p in probabilities.items() if key in by_key
         }
-        scores = self._scores(response["answers"], by_key, scored)
-        trace["scores"] = {str(by_key[key]["index"]): round(score, 4) for key, score in scores.items()}
-        if scores:
-            picked = self._best(scores, picked, probabilities)
         top = tuple(
             (by_key[key]["label"], p)
             for key, p in sorted(probabilities.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP_PROBABILITIES]
             if key in by_key
         )
-        return Decision(
-            by_key[picked]["index"], confidence=confidence, probabilities=top, model=response.get("model", self.model),
-            scores=tuple((by_key[key]["label"], score) for key, score in scores.items()), trace=trace,
-        )
-
-    @staticmethod
-    def _scores(answers: dict, by_key: dict, scored: list) -> dict:
-        """``{option key: score}`` for the score questions Jev answered; a missing or malformed one is skipped."""
-        scores = {}
-        for key in scored:
-            answer = answers.get(f"s{by_key[key]['index']}")
-            if answer is None:
-                continue
-            try:
-                scores[key], _, _ = typesafe.read_score(answer)
-            except typesafe.TypeSafeError as exc:
-                logger.warning("Jev agent: unreadable score for %s: %s", key, exc)
-        return scores
-
-    @staticmethod
-    def _best(scores: dict, picked: str, probabilities: dict) -> str:
-        """The best-scored option; ties within TIE go to the choice's probability. An
-        option without a score wins only when the choice gives it more than a half."""
-        if picked not in scores and probabilities.get(picked, 0.0) > 0.5:
-            return picked
-        best = max(scores.values())
-        tied = [key for key, score in scores.items() if score >= best - TIE]
-        return max(tied, key=lambda key: (probabilities.get(key, 0.0), -int(key[1:])))
+        return Decision(by_key[picked]["index"], confidence=confidence, probabilities=top,
+                        model=response.get("model", self.model), trace=trace)
