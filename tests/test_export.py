@@ -56,3 +56,31 @@ def test_an_unknown_id_is_a_command_error():
     for command in ("export_match", "export_playtest"):
         with pytest.raises(CommandError):
             call_command(command, "not-a-uuid", "--output", "/nonexistent")
+
+
+def _scored_trace(user):
+    from playtest.models import DecisionTrace, MatchEvent
+
+    from .factories import make_match
+    from .fakeforge import sample_decision
+
+    match = make_match(user)
+    event = MatchEvent.objects.create(match=match, seq=1, turn=3, seat_position=0, kind="decision", text="attack: Attack with Bear",
+                                      payload={"kind": "attack", "choice": 1})
+    decision = sample_decision(simulated=True)
+    trace = DecisionTrace.objects.create(
+        match=match, seat_position=0, event=event, turn=3, step="COMBAT_DECLARE_ATTACKERS", kind="attack",
+        prompt=decision["prompt"], state={"you": {"life": 20}, "opponents": []}, options=decision["options"],
+        probabilities={"0": 0.2, "1": 0.7, "2": 0.1}, scores={"0": 3.0, "1": 4.2, "2": 3.4}, choice=1, confidence=0.6,
+        outcome="done")
+    return match, trace
+
+
+def test_export_shows_summary_and_score(user):
+    match, trace = _scored_trace(user)
+    text = export.match_markdown(match)
+    assert "→ Attack with Bear #3 (3/3) -> Player Green (20 life)" in text
+    assert "`0.70`" in text and "`score 4.20`" in text and "— Green: 20 → 17 life" in text
+    line = next(json.loads(l) for l in export.match_jsonl(match).splitlines() if json.loads(l)["kind"] == "decision")
+    assert line["trace"]["options"][1]["score"] == 4.2 and line["trace"]["options"][1]["outcome"]["summary"] == "Green: 20 → 17 life"
+    assert line["trace"]["options"][1]["p"] == 0.7

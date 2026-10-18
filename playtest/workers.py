@@ -208,6 +208,7 @@ def _record(match: Match, seat: Seat, decision: dict, answer: Decision) -> Decis
             state=answer.trace.get("state") or {},
             options=answer.trace.get("options") or [],
             probabilities=answer.trace.get("probabilities") or {},
+            scores=answer.trace.get("scores") or {},
             latency_ms=answer.trace.get("latency_ms"),
             confidence=answer.confidence,
             choice=answer.choice,

@@ -49,6 +49,7 @@
                     {% if option.chosen %}<span class="chip"><span translate="no" class="ms ms-sm">bolt</span>Jev</span>{% endif %}
                     {% if option.forge_ai %}<span class="chip"><span translate="no" class="ms ms-sm">memory</span>Forge AI</span>{% endif %}
                     {% if option.facts %}<span class="cell-sub">{{ option.facts|join:" · " }}</span>{% endif %}
+                    {% if option.summary %}<span class="cell-sub">{{ option.summary }}{% if option.score is not None %} · score {{ option.score|floatformat:1 }}{% endif %}</span>{% endif %}
                 </div>
                 <span class="meter">
                     <span class="meter-track"><span class="meter-fill" style="width:{{ option.percent }}%"></span></span>

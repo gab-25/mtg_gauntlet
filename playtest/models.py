@@ -238,6 +238,9 @@ class DecisionTrace(models.Model):
     flags = models.JSONField(default=list, blank=True)
     # The option Forge's AI would have picked, when the bridge says (#75).
     forge_ai_choice = models.SmallIntegerField(null=True, blank=True)
+    # On a simulated decision, Jev's score (0–6) of the position each option leads to,
+    # by option index as a string; each option's `outcome` is in `options`.
+    scores = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

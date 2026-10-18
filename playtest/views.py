@@ -534,6 +534,8 @@ def decision_detail(request, playtest_id, match_id, trace_id):
             **option,
             "p": p,
             "percent": round(100 * (p or 0)),
+            "score": trace.scores.get(str(option["index"])),
+            "summary": (option.get("outcome") or {}).get("summary"),
             "chosen": option["index"] == trace.choice,
             "forge_ai": option["index"] == trace.forge_ai_choice,
         })

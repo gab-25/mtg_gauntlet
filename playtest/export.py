@@ -20,7 +20,10 @@ def trace_dict(trace) -> dict:
         "kind": trace.kind,
         "prompt": trace.prompt,
         "state": trace.state,
-        "options": [{**option, "p": trace.probabilities.get(str(option["index"]))} for option in trace.options],
+        "options": [
+            {**option, "p": trace.probabilities.get(str(option["index"])), "score": trace.scores.get(str(option["index"]))}
+            for option in trace.options
+        ],
         "choice": trace.choice,
         "confidence": trace.confidence,
         "outcome": trace.outcome,
@@ -87,9 +90,12 @@ def _decision_md(trace) -> list[str]:
     out = [f"**{trace.kind}** — {trace.prompt}", "", *_compact_state(trace.state or {}), ""]
     for option in trace.options:
         p = trace.probabilities.get(str(option["index"]))
+        score = trace.scores.get(str(option["index"]))
         mark = "→" if option["index"] == trace.choice else "·"
         facts = f" — {'; '.join(option['facts'])}" if option.get("facts") else ""
-        out.append(f"- {mark} {option['label']}{facts}" + (f" `{p:.2f}`" if p is not None else ""))
+        summary = f" — {option['outcome']['summary']}" if option.get("outcome") else ""
+        tail = (f" `{p:.2f}`" if p is not None else "") + (f" `score {score:.2f}`" if score is not None else "")
+        out.append(f"- {mark} {option['label']}{facts}{summary}{tail}")
     verdict = f"Outcome: {trace.get_outcome_display().lower() if trace.outcome else 'pending'}"
     if trace.choice is None:
         verdict += f" (Forge AI decided: {trace.fallback_kind})"

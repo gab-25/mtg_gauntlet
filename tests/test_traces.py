@@ -201,3 +201,20 @@ def test_a_declaration_forge_ai_finished_is_settled_as_delegated(user):
     assert [outcome(t) for t in undone + [handed]] == ["delegated"] * 3
     assert outcome(blocks) == "done"
     assert [outcome(t) for t in kept] == ["done", "done"]
+
+
+@pytest.mark.django_db
+def test_scores_and_outcomes_are_stored_on_the_trace(user):
+    from .fakeforge import sample_decision
+
+    match = make_match(user)
+    seat = match.seats.get(position=0)
+    decision = sample_decision(simulated=True)
+    answer = Decision(1, confidence=0.9, model="m", scores=(("Attack with Bear #3 (3/3) -> Player Green (20 life)", 4.2),),
+                      trace={"instructions": "i", "state": {}, "options": decision["options"],
+                             "probabilities": {"1": 0.9}, "scores": {"1": 4.2, "0": 3.0}, "latency_ms": 12})
+    stored = workers._record(match, seat, decision, answer)
+    trace = DecisionTrace.objects.get(pk=stored.trace_id)
+    assert trace.scores == {"1": 4.2, "0": 3.0}
+    assert trace.options[1]["outcome"]["summary"] == "Green: 20 → 17 life"
+    assert DecisionTrace.objects.create(match=match, seat_position=0).scores == {}

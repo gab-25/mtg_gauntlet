@@ -125,3 +125,21 @@ def test_a_pick_that_never_reached_the_game_counts_as_a_fallback(client, user):
     match = make_match(user, status="finished")
     _trace(match, outcome="delegated", fallback_reason="the answer did not reach the game")
     assert "Cast Shock #6" in client.get(_url(match, only="fallbacks")).content.decode()
+
+
+def test_a_trace_without_scores_renders(client, user):
+    match = make_match(user)
+    trace = _trace(match)
+    page = client.get(_detail(match, trace)).content.decode()
+    assert page.count("Cast Shock #6") >= 1 and "score" not in page.lower().split("what jev saw")[0].split("options")[-1]
+
+
+def test_the_detail_shows_each_outcome_summary_and_score(client, user):
+    from .fakeforge import sample_decision
+
+    match = make_match(user)
+    decision = sample_decision(simulated=True)
+    trace = _trace(match, kind="attack", prompt=decision["prompt"], options=decision["options"],
+                   probabilities={"0": 0.2, "1": 0.7, "2": 0.1}, scores={"0": 3.0, "1": 4.2, "2": 3.4})
+    page = client.get(_detail(match, trace)).content.decode()
+    assert "Green: 20 → 17 life" in page and "score 4.2" in page and "no change" in page
