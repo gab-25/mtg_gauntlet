@@ -65,8 +65,8 @@ The default `DATABASE_URL` is the Compose Postgres on localhost; set
 - Code, comments, docstrings, commit messages, README, `docs/` and issues are in
   English.
 - Forge is the rules engine: never re-implement rules or card effects here. An agent
-  only picks one of the bridge's options (by index) or delegates to Forge's AI; no
-  model is ever the rules engine.
+  only picks one of the bridge's options (by index), or rates the positions Forge
+  simulated for them, or delegates to Forge's AI; no model is ever the rules engine.
 - `decks/formats.py` is the single source for format parameters (its `forge_format`
   is the bridge's name). Adding a format, a `Seat.Agent` or any status/choice value
   needs a migration.

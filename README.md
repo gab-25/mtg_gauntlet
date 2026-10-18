@@ -40,9 +40,13 @@ hands the decision back to Forge's AI.
 - **Jev on every seat**: Jev picks each of Forge's options through OpenRouter, and its
   confidence and runner-up options are logged. There is no agent to choose: both seats
   are Jev, always on `~typesafe/jev-latest`. Forge's own AI never plays a seat;
-  it only takes fallbacks and what the bridge does not expose. A seat that is unsure
-  (confidence below 0.2) or cannot reach Jev hands that decision to Forge's AI,
-  with the reason logged, so a match never stalls on a model.
+  it only takes fallbacks and what the bridge does not expose. A seat that cannot reach
+  Jev hands that decision to Forge's AI, with the reason logged, so a match never stalls
+  on a model.
+- **Simulated outcomes**: attacks, blocks and plays are whole actions, each with the
+  position Forge reaches when it is carried out on a copy of the game (the opponent not
+  responding); Jev rates each position on a fixed scale from "lost" to "won" and plays
+  the best one. The inspector and the exports show each option's outcome and score.
 - **Coverage**: Forge either knows a card or the match is refused, naming the card.
   Each seat lists the cards Forge knows but cannot play fully. The deck page checks a
   deck on demand (**Check with Forge**), never on page view, and keeps the answer:

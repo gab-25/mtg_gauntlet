@@ -28,6 +28,12 @@ services:
       # The turn cap: past it the game is a draw.
       MAX_TURNS: ${MAX_TURNS:-50}
       MAX_CONCURRENT_GAMES: ${MAX_CONCURRENT_GAMES:-16}
+      # Simulated outcomes (docs/forge.md): attack, block and priority decisions come
+      # as whole actions with the position each leads to, which Jev scores.
+      SIMULATE: ${SIMULATE:-1}
+      MAX_CANDIDATES: ${MAX_CANDIDATES:-8}
+      MAX_TARGETS_PER_ABILITY: ${MAX_TARGETS_PER_ABILITY:-4}
+      SIMULATION_BUDGET_MS: ${SIMULATION_BUDGET_MS:-1500}
     ports:
       - "127.0.0.1:8080:8080"
 

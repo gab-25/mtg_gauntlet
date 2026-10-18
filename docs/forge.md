@@ -38,7 +38,21 @@ seeded generator; in a multi-select it points at the AI's next pick, then at "Do
 ([mtg_forge_engine#7](https://github.com/gab-25/mtg_forge_engine/pull/7)). The bridge
 copies it into the `decision` and `fallback` events too. It is optional for the client:
 the worker keeps it in the decision trace only when it is an offered index, and an older
-bridge without it keeps working. **Everything else is always Forge's AI**: mana payment, combat damage
+bridge without it keeps working.
+
+**Simulated decisions** (bridge `SIMULATE=1`, on in the compose file). The `attack`, `block`
+and `priority` decisions come as one question over complete actions — `"No attack"` /
+`"Attack with X, Y -> Player B"`, `"No block"` / `"Block A with X; block B with Y"`,
+`"Cast Shock #6 for {R}: … targeting Goblin #4"` — with `simulated: true` and, on each
+option, an `outcome`: the position Forge reached carrying the action out on a copy of the
+game with the opponents silenced (every permanent tapped: no blocks, no responses), after
+the whole stack resolved. The outcome lists, for `you` and each opponent, `life`, `hand`
+and `graveyard` as `[before, after]`, permanents `lost`, `gained` and `changed`,
+`lost_game`, and a one-line `summary`; `null` when the simulation failed or the bridge's
+budget ran out. A candidate whose target was chosen answers the following `target`
+question itself. The agent rates each outcome with a Jev `score` question
+([agents](agents.md)); an older bridge without `simulated` keeps working as before. The
+full contract is the bridge's README. **Everything else is always Forge's AI**: mana payment, combat damage
 assignment, scry and the other choices the bridge does not expose; each is logged as a
 `forge_ai` event.
 
