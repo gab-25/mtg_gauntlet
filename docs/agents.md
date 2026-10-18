@@ -154,9 +154,10 @@ option labels and Forge's facts; they never compute a rule.
 | `no_effect` | a play Forge did not carry out (the trace's outcome) |
 | `pass_with_plays` | "Pass priority" in your own second main phase, empty stack, with a `Cast …` option offered for a card that is not an instant and has no flash (holding those for the opponent's turn is a plan) |
 | `land_not_played` | the last "Pass priority" of your turn in a main phase, empty stack, no land played this turn, a `Play …` option offered, and no land played later that turn |
-| `ignored_lethal` | "Done" attacking while an attack is `lethal if unblocked`; "Done" blocking while the prompt's unblocked damage is at least your life |
-| `bad_attack` | an attack whose facts say `dies if blocked by: …` and which is not lethal |
+| `ignored_lethal` | "Done" or "No attack" while an attack is `lethal if unblocked`; "Done" or "No block" while the prompt's unblocked damage is at least your life |
+| `bad_attack` | an attack (or a whole plan) every attacker of which `dies if blocked by: …`, none being lethal |
 | `mulligan_keep` | keeping seven cards with at most 1 or at least 6 lands (`MULLIGAN_LANDS` per format, `DEFAULT_MULLIGAN_LANDS = (1, 6)`) |
+| `worse_outcome` | on a simulated decision, another option's outcome is at least as good on every count (your life, the opponents' life lost, your creatures kept, theirs killed, your cards in hand) and better on one: dominance, not a valuation |
 
 A flag means "look at this", not "this was wrong": the bridge says which blockers kill
 an attacker, not whether they die too, so `bad_attack` cannot tell a bad attack from

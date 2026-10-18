@@ -17,9 +17,19 @@ def trace(kind="priority", options=(), choice=0, step="MAIN2", active=True, stac
     }
     return DecisionTrace(
         id=next(ids), seat_position=seat, turn=turn, step=step, kind=kind, prompt=prompt, state=state,
-        options=[{"index": i, "label": label, "facts": list(facts)} for i, (label, facts) in enumerate(options)],
+        options=[{"index": i, "label": spec[0], "facts": list(spec[1]), **({"outcome": spec[2]} if len(spec) > 2 else {})}
+                 for i, spec in enumerate(options)],
         choice=choice, outcome=outcome,
     )
+
+
+def _outcome(you_life, opp_life, lost=(), killed=(), hand=(5, 5)):
+    """A bridge outcome: your life, the opponent's life, your creatures lost, theirs killed."""
+    return {
+        "you": {"name": "you", "life": list(you_life), "hand": list(hand), "graveyard": [0, 0], "lost": list(lost), "gained": [], "changed": []},
+        "opponents": [{"name": "Opp", "life": list(opp_life), "hand": [5, 5], "graveyard": [0, 0], "lost": list(killed), "gained": [], "changed": []}],
+        "summary": "x",
+    }
 
 
 PRIORITY = [("Pass priority", []), ("Play Mountain #5", []), ("Cast Shock #6 for {R}: deals 2 damage", [])]
@@ -129,3 +139,40 @@ def test_trace_stats_reports_agreement_with_forge_ai():
     c.forge_ai_choice = 2
     stats = trace_stats([a, b, c])
     assert stats[0]["agreement"] == {"rated": 2, "agree": 1, "by_kind": {"attack": [1, 1], "priority": [1, 0]}}
+
+
+def test_ignored_lethal_reads_whole_attack_plans():
+    options = [("No attack", []), ("Attack with Bear #3 (3/3) -> Player Opp (3 life)",
+                                   ["Bear #3 (3/3): deals 3 damage if unblocked; lethal if unblocked"])]
+    assert checks_of(trace(kind="attack", options=options, choice=0)) == [["ignored_lethal"]]
+    blocks = [("No block", []), ("Block Bear #3 (3/3) with Wall #4 (0/4)", ["Wall #4 (0/4): your blocker survives; the attacker survives"])]
+    lethal = trace(kind="block", options=blocks, prompt="Declare your blocks (unblocked attackers deal 5, your life 4)")
+    assert checks_of(lethal) == [["ignored_lethal"]]
+
+
+def test_bad_attack_on_a_plan_needs_every_attacker_to_die():
+    both_die = [("No attack", []), ("Attack with Goblin #4 (1/1), Elf #5 (1/1) -> Player Opp (20 life)",
+                                    ["Goblin #4 (1/1): dies if blocked by: Wall #9 (0/4)", "Elf #5 (1/1): dies if blocked by: Wall #9 (0/4)"])]
+    assert checks_of(trace(kind="attack", options=both_die, choice=1)) == [["bad_attack"]]
+    one_safe = [("No attack", []), ("Attack with Goblin #4 (1/1), Bear #3 (3/3) -> Player Opp (20 life)",
+                                    ["Goblin #4 (1/1): dies if blocked by: Wall #9 (0/4)", "Bear #3 (3/3): deals 3 damage if unblocked"])]
+    assert checks_of(trace(kind="attack", options=one_safe, choice=1)) == [[]]
+
+
+def test_a_dominated_outcome_is_flagged():
+    options = [("No attack", [], _outcome((20, 20), (20, 20))),
+               ("Attack with Goblin #4 -> Opp", [], _outcome((20, 20), (20, 19), lost=["Goblin (1/1)"])),
+               ("Attack with Bear #3 -> Opp", [], _outcome((20, 20), (20, 17)))]
+    flagged = trace(kind="attack", options=options, choice=1)
+    flags = check_match([flagged], "modern")
+    assert flags[flagged.id] == [{"check": "worse_outcome", "reason": "Attack with Bear #3 -> Opp is better on every count"}]
+    assert checks_of(trace(kind="attack", options=options, choice=2)) == [[]]
+
+
+def test_an_outcome_better_on_one_count_is_not_dominated():
+    options = [("No attack", [], _outcome((20, 20), (20, 20))),
+               ("Attack with Goblin #4 -> Opp", [], _outcome((20, 20), (20, 16), lost=["Goblin (1/1)"])),
+               ("Attack with Bear #3 -> Opp", [], _outcome((20, 20), (20, 17)))]
+    assert checks_of(trace(kind="attack", options=options, choice=1)) == [[]]
+    # Without outcomes (an unsimulated bridge) the check stays quiet.
+    assert checks_of(trace(kind="attack", options=[("No attack", []), ("Attack with Bear #3 -> Opp", [])], choice=0)) == [[]]
