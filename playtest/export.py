@@ -93,7 +93,8 @@ def _decision_md(trace) -> list[str]:
         score = trace.scores.get(str(option["index"]))
         mark = "→" if option["index"] == trace.choice else "·"
         facts = f" — {'; '.join(option['facts'])}" if option.get("facts") else ""
-        summary = f" — {option['outcome']['summary']}" if option.get("outcome") else ""
+        summary_text = (option.get("outcome") or {}).get("summary")
+        summary = f" — {summary_text}" if summary_text else ""
         tail = (f" `{p:.2f}`" if p is not None else "") + (f" `score {score:.2f}`" if score is not None else "")
         out.append(f"- {mark} {option['label']}{facts}{summary}{tail}")
     verdict = f"Outcome: {trace.get_outcome_display().lower() if trace.outcome else 'pending'}"

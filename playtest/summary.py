@@ -18,6 +18,9 @@ from decks.formats import FORMATS
 # (still stored): every step of every turn, and each mana ability.
 QUIET_LOG = {"PHASE", "MANA"}
 
+# A decision answered with a confidence under this counts as "low" in the summary.
+LOW_CONFIDENCE = 0.2
+
 LIFE_CHANGE = re.compile(r" (-?\d+) > (-?\d+)$")
 TURN_LINE = re.compile(r"^Turn (\d+) \((.+)\)$")
 
@@ -178,15 +181,15 @@ def summarize_match(events, seats: list, fmt: str, game: dict) -> dict:
             stats[seat]["failed_plays"] += not reported and bool(payload.get("failed_play"))
             if payload.get("confidence") is not None:
                 confidences[seat].append(payload["confidence"])
+                stats[seat]["confidence"]["low"] += payload["confidence"] < LOW_CONFIDENCE
         elif kind == "fallback":
             stats[seat]["decisions"]["forge_ai"] += 1
             stats[seat]["failed_plays"] += not reported and bool(payload.get("failed_play"))
             reason = fallback_reason(payload)
             stats[seat]["fallbacks"][reason] = stats[seat]["fallbacks"].get(reason, 0) + 1
-            if reason == "low_confidence":
-                stats[seat]["confidence"]["low"] += 1
             if payload.get("confidence") is not None:
                 confidences[seat].append(payload["confidence"])
+                stats[seat]["confidence"]["low"] += payload["confidence"] < LOW_CONFIDENCE
         elif kind == "play_failed":
             stats[seat]["failed_plays"] += 1
         elif kind == "forge_ai":

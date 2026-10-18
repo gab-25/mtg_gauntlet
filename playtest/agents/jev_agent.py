@@ -206,8 +206,11 @@ def jev_state(view: dict, *, kind: str = "", prompt: str = "") -> str:
 
 
 def describe_option(option: dict) -> str:
+    """Label, Forge's facts and, on a simulated option, the outcome's one-line summary."""
     facts = option.get("facts") or []
-    return option["label"] + (" — " + "; ".join(facts) if facts else "")
+    text = option["label"] + (" — " + "; ".join(facts) if facts else "")
+    summary = (option.get("outcome") or {}).get("summary")
+    return text + (f" → {summary}" if summary else "")
 
 
 def kind_line(kind: str, simulated: bool = False) -> str:

@@ -23,9 +23,10 @@ class Decision:
     choice: int | None          # the picked option's index; None delegates to Forge's AI
     reasoning: str = ""         # why, in the agent's own words
     fallback_reason: str = ""   # set when it delegates: why, in words
-    fallback_kind: str = ""     # "low_confidence", "error" or "budget"
+    fallback_kind: str = ""     # "error" or "budget" ("low_confidence" on matches before 2026-10-18)
     confidence: float | None = None                    # Jev
     probabilities: tuple[tuple[str, float], ...] = ()  # top options by label
+    scores: tuple[tuple[str, float], ...] = ()         # on a simulated decision: each outcome's score, by label
     model: str = ""             # the versioned model id that answered
     failed_play: str = ""       # the play Forge did not carry out just before (#71)
     trace: dict | None = None   # what the agent saw and answered; never sent to the bridge
@@ -37,19 +38,23 @@ class Decision:
 def delegate(kind, reason, **extra) -> Decision: ...
 
 class Agent(Protocol):
-    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "") -> Decision: ...
+    def choose(self, view: dict, options: list[dict], *, kind: str = "", prompt: str = "",
+               simulated: bool = False) -> Decision: ...
 ```
 
-- `view`, `options` (`index`, `label`, `facts`), `kind` and `prompt` are the bridge's
-  decision as is. The bridge never asks when there is a single option.
+- `view`, `options` (`index`, `label`, `facts` and, on a simulated decision, `outcome`),
+  `kind`, `prompt` and `simulated` are the bridge's decision as is. The bridge never asks
+  when there is a single option.
 - The worker answers `{"choice": i, "meta": ...}` or `{"delegate": true, "meta": ...}`;
-  `meta` carries `confidence`, `probabilities`, `model`, `reason`,
+  `meta` carries `confidence`, `probabilities`, `scores`, `model`, `reason`,
   `fallback_reason` and `fallback_kind`, and lands on the bridge's `decision` or
-  `fallback` event, which the match page and the summary read.
+  `fallback` event, which the match page and the summary read. On a scored decision the
+  log shows the pick's score and what the `choice` leaned to; the summary's "low"
+  confidence counts the decisions answered under `LOW_CONFIDENCE` (0.2).
 
 ## Jev agent
 
-`playtest/agents/jev_agent.py` — `JevAgent(model=None, *, seed=None, ask=None, min_confidence=None)`.
+`playtest/agents/jev_agent.py` — `JevAgent(model=None, *, seed=None, ask=None)`.
 
 One Jev request per decision:
 
@@ -110,6 +115,7 @@ with "Pass priority" alone, more than 255 options) have none.
 | `instructions`, `state` | the question's instructions and the `jev_state` JSON, exactly as sent |
 | `options` | `[{index, label, facts}]` in the order Jev was shown them (after the shuffle) |
 | `probabilities` | Jev's full distribution, `{index: p}` |
+| `scores` | on a simulated decision, Jev's score (0–6) of each option's outcome, `{index: score}`; each option's `outcome` is in `options` |
 | `confidence`, `choice`, `model`, `latency_ms` | the answer; `choice` is null when Forge's AI decided |
 | `fallback_kind`, `fallback_reason`, `failed_play` | as on the event |
 | `outcome` | `done`, `no_effect` (the same decision came back: Forge did not carry the play out) or `delegated` (Forge's AI decided, also when Jev's pick never reached the game: the bridge timed out or the game had ended) |

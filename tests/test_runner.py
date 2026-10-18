@@ -376,3 +376,6 @@ def test_a_match_on_a_simulating_bridge_is_played_through_scores(user, simulatin
     attack = match.traces.filter(kind="attack").first()
     assert attack.options[0]["label"] == "No attack" and attack.options[1]["outcome"]["opponents"][0]["life"][1] < 20
     assert not match.traces.filter(fallback_kind="low_confidence").exists()
+    land = next(o for t in match.traces.filter(kind="priority") for o in t.options if o["label"].startswith("Play "))
+    assert land["outcome"]["you"]["hand"] == [5, 4] and land["outcome"]["you"]["lost_game"] is False
+    assert not any(f["check"] == "worse_outcome" for t in match.traces.filter(kind="priority") for f in t.flags)

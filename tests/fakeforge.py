@@ -112,12 +112,12 @@ class FakeGame:
         self.next_card += 1
         return self.next_card
 
-    def _outcome(self, seat: int, you_life: int, opp_life: int, gained=()) -> dict:
+    def _outcome(self, seat: int, you_life: int, opp_life: int, gained=(), cards_played: int = 0) -> dict:
         other = 1 - seat
-        you = {"name": self.names[seat], "life": [self.life[seat], you_life], "hand": [5, 5], "graveyard": [0, 0],
-               "lost": [], "gained": list(gained), "changed": []}
+        you = {"name": self.names[seat], "life": [self.life[seat], you_life], "hand": [5, 5 - cards_played],
+               "graveyard": [0, 0], "lost": [], "gained": list(gained), "changed": [], "lost_game": you_life <= 0}
         opp = {"name": self.names[other], "life": [self.life[other], opp_life], "hand": [5, 5], "graveyard": [0, 0],
-               "lost": [], "gained": [], "changed": []}
+               "lost": [], "gained": [], "changed": [], "lost_game": opp_life <= 0}
         parts = []
         if opp["life"][0] != opp["life"][1]:
             parts.append(f"{self.names[other]}: {opp['life'][0]} → {opp['life'][1]} life")
@@ -145,9 +145,10 @@ class FakeGame:
             plans = []
             for label, facts in options:
                 if label.startswith("Play "):
-                    plans.append((label, facts, self._outcome(seat, life, opp, gained=["Mountain"])))
+                    plans.append((label, facts, self._outcome(seat, life, opp, gained=["Mountain"], cards_played=1)))
                 elif label.startswith("Cast Shock"):
-                    plans.append((f"{label} targeting Player {self.names[other]} ({opp} life)", facts, self._outcome(seat, life, opp - 2)))
+                    plans.append((f"{label} targeting Player {self.names[other]} ({opp} life)", facts,
+                                  self._outcome(seat, life, opp - 2, cards_played=1)))
                 elif label.startswith("Pass"):
                     plans.append((label, facts, same))
                 else:

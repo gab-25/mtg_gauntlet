@@ -134,8 +134,13 @@ the trigger and polling stops.
                     <span class="log-text"><span translate="no" class="muted">{{ row.who }}</span> — {{ event.text }}{% if event.payload.trace %} <a class="log-link" href="{% url 'decision_detail' match.playtest_id match.id event.payload.trace %}" title="Inspect this decision" aria-label="Inspect this decision"><span translate="no" class="ms ms-sm">search</span></a>{% endif %}</span>
                     {% if event.payload.confidence is not None %}
                     <span class="log-note">
+                        {% if event.payload.scores %}
+                        Jev{% if row.score is not None %} score <span class="font-mono">{{ row.score|floatformat:1 }}</span>{% endif %}
+                        {% for option in event.payload.probabilities %}{% if forloop.first %} · choice leaned to: {% else %}, {% endif %}{{ option.label }} <span class="font-mono">{{ option.p|floatformat:2 }}</span>{% endfor %}
+                        {% else %}
                         Jev <span class="font-mono">{{ event.payload.confidence|floatformat:2 }}</span>
                         {% for option in event.payload.probabilities|slice:"1:" %}{% if forloop.first %} · runner-up: {% else %}, {% endif %}{{ option.label }} <span class="font-mono">{{ option.p|floatformat:2 }}</span>{% endfor %}
+                        {% endif %}
                     </span>
                     {% endif %}
                     {% if event.payload.failed_play %}<span class="log-note"><span class="warn">failed play</span> · Forge did not carry out {{ event.payload.failed_play }}</span>{% endif %}

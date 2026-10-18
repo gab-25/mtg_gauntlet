@@ -378,6 +378,10 @@ def log_rows(events, names: dict[int, str]) -> list[dict]:
             row["headline"] = payload.get("type") in ("TURN", "GAME_OUTCOME")
         elif event.kind == "fallback":
             row["reason"] = fallback_reason(payload)
+        elif event.kind == "decision" and payload.get("scores"):
+            # A scored decision: the pick is the best position, not the choice's favourite.
+            label = event.text.split(": ", 1)[-1]
+            row["score"] = next((s["score"] for s in payload["scores"] if s.get("label") == label), None)
         rows.append(row)
     return rows
 

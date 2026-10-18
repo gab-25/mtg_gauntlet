@@ -176,3 +176,23 @@ def test_an_outcome_better_on_one_count_is_not_dominated():
     assert checks_of(trace(kind="attack", options=options, choice=1)) == [[]]
     # Without outcomes (an unsimulated bridge) the check stays quiet.
     assert checks_of(trace(kind="attack", options=[("No attack", []), ("Attack with Bear #3 -> Opp", [])], choice=0)) == [[]]
+
+
+def test_developing_the_board_is_not_dominated_by_passing():
+    pass_ = ("Pass priority", [], _outcome((20, 20), (20, 20)))
+    land = ("Play Mountain #5", [], {**_outcome((20, 20), (20, 20), hand=(5, 4)), "you": {**_outcome((20, 20), (20, 20), hand=(5, 4))["you"], "gained": ["Mountain"]}})
+    creature = ("Cast Grizzly Bears #6 for {1}{G}", [], {**_outcome((20, 20), (20, 20), hand=(5, 4)), "you": {**_outcome((20, 20), (20, 20), hand=(5, 4))["you"], "gained": ["Grizzly Bears (2/2)"]}})
+    assert checks_of(trace(options=[pass_, land, creature], choice=1)) == [[]]
+    assert checks_of(trace(options=[pass_, land, creature], choice=2)) == [[]]
+    # A pump spell in your own main phase that changes nothing but the hand is dominated.
+    pump = ("Cast Giant Growth #7 for {G}", [], _outcome((20, 20), (20, 20), hand=(5, 4)))
+    assert checks_of(trace(options=[pass_, pump], choice=1)) == [["worse_outcome"]]
+    # Taking the damage while a free block exists is dominated.
+    blocks = [("No block", [], _outcome((20, 17), (20, 20))), ("Block Bear #3 with Wall #4", [], _outcome((20, 20), (20, 20)))]
+    assert checks_of(trace(kind="block", options=blocks, choice=0)) == [["worse_outcome"]]
+
+
+def test_a_partial_outcome_never_breaks_the_checks():
+    partial = [("Pass priority", [], {"summary": "no change"}), ("Cast Shock #6 for {R}", [], {"you": {}})]
+    [flags] = checks_of(trace(options=partial, choice=0))
+    assert "worse_outcome" not in flags  # the other checks still run: nothing raised

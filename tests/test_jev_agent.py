@@ -86,6 +86,14 @@ def test_an_option_is_described_by_its_label_and_forges_facts():
     assert describe_option({"index": 0, "label": "Pass priority", "facts": []}) == "Pass priority"
 
 
+def test_a_simulated_option_is_described_with_its_outcome_summary():
+    option = sample_decision(simulated=True)["options"][1]
+    assert describe_option(option) == (
+        "Attack with Bear #3 (3/3) -> Player Green (20 life) — Bear #3 (3/3): deals 3 damage if unblocked"
+        " → Green: 20 → 17 life")
+    assert describe_option({"index": 0, "label": "Pass priority", "facts": [], "outcome": None}) == "Pass priority"
+
+
 def test_the_instructions_name_the_format_the_turn_the_kind_and_forges_prompt():
     jev = StubJev()
     _choose(JevAgent(seed=1, ask=jev))

@@ -164,17 +164,23 @@ def bad_attack(traces, fmt):
             yield trace, f"attacks into blockers that kill it: {', '.join(dict.fromkeys(killers))}"
 
 
-def _counts(outcome: dict) -> tuple:
+def _counts(outcome: dict) -> tuple | None:
     """The numbers of an outcome, each better when higher: your life, the opponents'
-    life lost, your creatures kept, the opponents' creatures killed, your cards in hand."""
-    you, opponents = outcome["you"], outcome.get("opponents") or []
-    return (
-        you["life"][1],
-        sum(o["life"][0] - o["life"][1] for o in opponents),
-        -len(you.get("lost") or []),
-        sum(len(o.get("lost") or []) for o in opponents),
-        you["hand"][1],
-    )
+    life lost, your permanents kept and gained, the opponents' permanents killed and
+    not gained, your cards in hand. None for an outcome without the bridge's shape."""
+    you, opponents = outcome.get("you") or {}, outcome.get("opponents") or []
+    try:
+        return (
+            you["life"][1],
+            sum(o["life"][0] - o["life"][1] for o in opponents),
+            -len(you.get("lost") or []),
+            len(you.get("gained") or []),
+            sum(len(o.get("lost") or []) for o in opponents),
+            -sum(len(o.get("gained") or []) for o in opponents),
+            you["hand"][1],
+        )
+    except (KeyError, IndexError, TypeError):
+        return None
 
 
 def worse_outcome(traces, fmt):
@@ -184,11 +190,13 @@ def worse_outcome(traces, fmt):
         if not chosen or not chosen.get("outcome"):
             continue
         mine = _counts(chosen["outcome"])
+        if mine is None:
+            continue
         for other in trace.options:
             if other is chosen or not other.get("outcome"):
                 continue
             theirs = _counts(other["outcome"])
-            if all(t >= m for t, m in zip(theirs, mine)) and theirs != mine:
+            if theirs is not None and all(t >= m for t, m in zip(theirs, mine)) and theirs != mine:
                 yield trace, f"{other['label']} is better on every count"
                 break
 

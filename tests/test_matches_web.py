@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from playtest.models import Match, Playtest
+from playtest.models import Match, MatchEvent, Playtest
 
 from .factories import make_deck, make_match, make_playtest
 
@@ -926,3 +926,18 @@ def test_the_playtest_page_and_the_match_summary_show_flagged_decisions(client, 
     assert "Flagged decisions" in page and "2 attack into a killer" in page
     summary = client.get(f"/playtests/{playtest.id}/matches/{match.id}").content.decode()
     assert "2 attack into a killer" in summary and "none" in summary
+
+
+@pytest.mark.django_db
+def test_the_log_shows_the_score_of_a_scored_decision(client, user):
+    from .factories import make_match
+
+    match = make_match(user, status="finished")
+    MatchEvent.objects.create(match=match, seq=1, turn=3, seat_position=0, kind="decision",
+                              text="attack: Attack with Bear #3 (3/3) -> Player Green (20 life)",
+                              payload={"kind": "attack", "choice": 1, "confidence": 0.9,
+                                       "probabilities": [{"label": "No attack", "p": 0.9}, {"label": "Attack with Bear #3 (3/3) -> Player Green (20 life)", "p": 0.05}],
+                                       "scores": [{"label": "No attack", "score": 3.0}, {"label": "Attack with Bear #3 (3/3) -> Player Green (20 life)", "score": 4.2}]})
+    page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
+    assert 'score <span class="font-mono">4.2</span>' in page and "runner-up" not in page
+    assert "choice leaned to: No attack" in page

@@ -84,3 +84,11 @@ def test_export_shows_summary_and_score(user):
     line = next(json.loads(l) for l in export.match_jsonl(match).splitlines() if json.loads(l)["kind"] == "decision")
     assert line["trace"]["options"][1]["score"] == 4.2 and line["trace"]["options"][1]["outcome"]["summary"] == "Green: 20 → 17 life"
     assert line["trace"]["options"][1]["p"] == 0.7
+
+
+def test_a_partial_outcome_never_breaks_the_export(user):
+    match, trace = _scored_trace(user)
+    trace.options[0]["outcome"] = {"summary": "no change"}
+    trace.options[1]["outcome"] = {"you": {}}
+    trace.save()
+    assert "Attack with Bear" in export.match_markdown(match)

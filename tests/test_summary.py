@@ -109,3 +109,21 @@ def test_a_bridge_reporting_failed_plays_is_counted_once():
     ]
     red, _ = summarize_match(events, _seats("jev", "jev"), "modern", {"turn": 3})["seats"]
     assert red["failed_plays"] == 1 and red["decisions"]["agent"] == 2
+
+
+def test_low_confidence_counts_the_decisions_under_the_threshold():
+    from playtest.summary import LOW_CONFIDENCE, summarize_match
+
+    from .factories import make_match  # noqa: F401 - documents where seats come from in the other tests
+
+    class Seat:
+        def __init__(self, position):
+            self.position, self.deck_name, self.agent, self.coverage = position, f"D{position}", "jev", {}
+
+    events = [
+        {"seq": 0, "turn": 1, "seat": 0, "kind": "decision", "text": "", "payload": {"confidence": 0.9}},
+        {"seq": 1, "turn": 1, "seat": 0, "kind": "decision", "text": "", "payload": {"confidence": LOW_CONFIDENCE - 0.05}},
+        {"seq": 2, "turn": 1, "seat": 0, "kind": "fallback", "text": "", "payload": {"reason": "delegate", "fallback_kind": "error"}},
+    ]
+    summary = summarize_match(events, [Seat(0), Seat(1)], "modern", {"status": "finished", "winner": 0, "turn": 1})
+    assert summary["seats"][0]["confidence"] == {"rated": 2, "median": 0.525, "low": 1}
