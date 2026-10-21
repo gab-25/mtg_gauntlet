@@ -70,11 +70,27 @@ def max_match_seconds() -> int:
     return _env_int("MAX_MATCH_SECONDS", DEFAULT_MAX_MATCH_SECONDS)
 
 
+def deck_list(seat: Seat) -> str:
+    """The seat's main deck as Jev reads it, Argentum's way: names and quantities, no order."""
+    from .runner import seat_cards  # the runner imports this module
+
+    try:
+        cards = seat_cards(seat)
+    except forge.ForgeError:
+        return ""
+    counts: dict[str, int] = {}
+    for item in cards:
+        if item.get("board", "main") == "main" or item.get("is_commander"):
+            name = item["data"]["name"]
+            counts[name] = counts.get(name, 0) + int(item.get("quantity") or 0)
+    return f"Deck (order unknown): {counts}" if counts else ""
+
+
 def build_agent(seat: Seat, seed: int):
     # Offset the seed per seat, so two seats of one kind don't mirror each other.
     agent_seed = seed + seat.position
     if seat.agent == Seat.Agent.JEV:
-        return JevAgent(seat.model or typesafe.MODEL, seed=agent_seed)
+        return JevAgent(seat.model or typesafe.MODEL, seed=agent_seed, deck=deck_list(seat))
     # forge_ai seats never reach a worker; anything else is Forge's AI too.
     return None
 

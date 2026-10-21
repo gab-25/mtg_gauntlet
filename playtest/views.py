@@ -21,6 +21,7 @@ from mtg_gauntlet.access import get_owned_or_404
 
 from . import forge
 from .agents import typesafe
+from .agents.jev_agent import filtered_state
 from .forms import (
     MAX_GAMES,
     MAX_GAMES_PER_OPPONENT,
@@ -543,7 +544,7 @@ def decision_detail(request, playtest_id, match_id, trace_id):
         "trace": trace,
         "seat": seats.get(trace.seat_position),
         "options": options,
-        "state": trace.state or {},
+        "state": filtered_state(trace.state or {}),
         "state_json": json.dumps(trace.state, indent=2, ensure_ascii=False),
         "previous_id": siblings[position - 1] if position else None,
         "next_id": siblings[position + 1] if position is not None and position + 1 < len(siblings) else None,

@@ -70,6 +70,9 @@ def _permanents(permanents) -> str:
 
 
 def _compact_state(state: dict) -> list[str]:
+    from .agents.jev_agent import filtered_state
+
+    state = filtered_state(state or {})
     you = state.get("you") or {}
     hand = ", ".join(card.get("name", "?") for card in you.get("hand") or []) or "—"
     lines = [f"- You: {you.get('life')} life; hand: {hand}; battlefield: {_permanents(you.get('battlefield'))}"]

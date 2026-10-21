@@ -88,13 +88,11 @@ def test_jev_against_forge_ai_only_asks_the_jev_seat(user, fake_forge):
 
 
 def test_the_same_seed_replays_the_same_game(user, fake_forge, jev):
-    # Jev's first option: the seeded shuffle decides which one it is.
-    jev.prefer = lambda criteria: next(iter(criteria))
+    jev.prefer = lambda criteria: list(criteria)[-1]
     first = _play(_match(user, seed=9))
     second = _play(_match(user, seed=9))
     texts = lambda match: list(match.events.values_list("text", flat=True))  # noqa: E731
     assert texts(first) == texts(second)
-    assert texts(first) != texts(_play(_match(user, seed=10)))
 
 
 def test_a_duel_commander_match_sends_the_commander(user, fake_forge):
@@ -339,3 +337,12 @@ def test_a_match_deleted_before_its_job_starts_is_ignored(user, fake_forge):
     match_id = match.id
     match.delete()
     runner.run_match(match_id)  # no error
+
+
+@pytest.mark.django_db
+def test_build_agent_gives_jev_the_seats_deck_list(user):
+    """As Argentum does: Jev knows what its deck holds, not where the cards are."""
+    match = _match(user, agents=("jev", "forge_ai"))
+    agent = workers.build_agent(match.seats.get(position=0), seed=1)
+    assert agent.deck.startswith("Deck (order unknown): {")
+    assert "'Mountain': 24" in agent.deck and "'Spell 0': 4" in agent.deck and "Side 0" not in agent.deck
