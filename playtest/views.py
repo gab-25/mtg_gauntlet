@@ -27,7 +27,8 @@ from .forms import (
     MAX_GAMES_PER_OPPONENT,
     MAX_OPPONENTS,
     METAGAME_PREFIX,
-    SEAT_AGENT,
+    AGENTS,
+    DEFAULT_AGENT,
     parse_playtest_form,
 )
 from .models import DecisionTrace, Match, Playtest, Seat
@@ -170,6 +171,8 @@ def _form_context(user, data, preset_top=False, **extra) -> dict:
         "refused": refused,
         "form_seed": data.get("seed", ""),
         "form_games": games,
+        "form_agent": data.get("agent") if data.get("agent") in Seat.Agent.values else DEFAULT_AGENT,
+        "agents": AGENTS,
         "chosen_games": len(chosen) * games,
         "max_opponents": MAX_OPPONENTS,
         "max_games_per_opponent": MAX_GAMES_PER_OPPONENT,
@@ -211,16 +214,16 @@ def _new_session(user, form) -> Playtest:
     with transaction.atomic():
         playtest = Playtest.objects.create(
             owner=user, format=form.format, deck=form.deck, deck_name=form.deck.name, seed=form.seed,
-            games_per_opponent=form.games,
+            games_per_opponent=form.games, agent=form.agent,
         )
         for index, opponent in enumerate(form.opponents):
             for game in range(form.games):
                 seed = form.seed + index * form.games + game
                 match = Match.objects.create(owner=user, playtest=playtest, format=form.format, seed=seed)
                 Seat.objects.bulk_create([
-                    Seat(match=match, position=0, deck=form.deck, deck_name=form.deck.name, agent=SEAT_AGENT),
+                    Seat(match=match, position=0, deck=form.deck, deck_name=form.deck.name, agent=form.agent),
                     Seat(match=match, position=1, deck=opponent.deck, metagame_deck=opponent.metagame_deck,
-                         deck_name=opponent.name, agent=SEAT_AGENT),
+                         deck_name=opponent.name, agent=form.agent),
                 ])
     return playtest
 
@@ -276,7 +279,7 @@ def _run_again_url(playtest, rows) -> str | None:
     """The new-playtest form filled with this session's deck and its opponents still around."""
     if playtest.deck_id is None:
         return None
-    params = [("deck", playtest.deck_id), ("games", playtest.games_per_opponent)]
+    params = [("deck", playtest.deck_id), ("games", playtest.games_per_opponent), ("agent", playtest.agent)]
     for row in rows:
         seat = row["opponent"]
         if seat is None:

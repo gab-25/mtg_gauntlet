@@ -12,9 +12,10 @@ rules engine with nearly every card scripted, plays every game from its own cont
 ([`mtg_forge_engine`](https://github.com/gab-25/mtg_forge_engine), the *bridge*) and asks
 each seat one decision at a time. The seats are played by
 [Jev](https://docs.typesafe.ai/introduction), TypeSafe AI's System One model, which picks
-among Forge's options and says how sure it is. Jev plays both seats: the deck under test
-always faces another Jev agent, and the user picks decks, never agents. No model is
-ever the rules engine: Forge lists the legal options; Jev only picks one of them, or
+among Forge's options and says how sure it is, or by Forge's own AI when the playtest
+says so. The same player takes both seats: the deck under test always faces an opponent
+played the same way, and the user picks decks and that player, never a model. No model
+is ever the rules engine: Forge lists the legal options; Jev only picks one of them, or
 hands the decision back to Forge's AI.
 
 ## Features
@@ -37,12 +38,15 @@ hands the decision back to Forge's AI.
 
   A constructed deck lists its sideboard under a `Sideboard` header; the sideboard is
   imported and checked, but a match is a single game played with the main deck.
-- **Jev on every seat**: Jev picks each of Forge's options through OpenRouter, the way
+- **One player on every seat**: Jev by default, or Forge's own AI (free, at the
+  engine's speed, no decision log) when the playtest picks it. The deck under test and
+  its opponents are always played the same way.
+- **Jev**: Jev picks each of Forge's options through OpenRouter, the way
   [Argentum Engine](https://github.com/wingedsheep/argentum-engine) plays it — the whole
   view, the deck list and the picks of the session as state, the options in Forge's
   order, one standing instruction, no confidence gate — and its confidence and runner-up
-  options are logged. There is no agent to choose: both seats are Jev, always on
-  `~typesafe/jev-latest`. Forge's own AI never plays a seat; it only takes fallbacks and
+  options are logged. There is no model to choose: Jev is always
+  `~typesafe/jev-latest`. In a Jev playtest Forge's AI only takes fallbacks and
   what the bridge does not expose. A seat that cannot reach Jev, or whose request would
   not fit Jev's context, hands that decision to Forge's AI, with the reason logged, so a
   match never stalls on a model.
@@ -152,7 +156,7 @@ The project uses [`uv`](https://docs.astral.sh/uv/).
 ### Docker Compose
 
 ```bash
-export OPENROUTER_API_KEY="..."       # required to start a match: Jev plays every seat
+export OPENROUTER_API_KEY="..."       # required for a Jev playtest; Forge AI needs none
 docker compose up --build
 docker compose exec web python manage.py createsuperuser
 ```

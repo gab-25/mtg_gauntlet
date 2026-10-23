@@ -24,8 +24,8 @@ Forge's AI.
 | `POST` | `/decisions/{id}` | `{"choice": i}` or `{"delegate": true}`, with an optional `meta` stored on the event; 409 when the decision is no longer pending |
 
 A seat's `controller` is `external` (a worker answers its decisions) or `forge_ai`
-(Forge's AI plays it and it never reaches a worker). New matches seat agents only, so
-every seat is `external`; `forge_ai` remains for older matches.
+(Forge's AI plays it and it never reaches a worker). A playtest's player sets it for
+every seat of its matches: `external` for Jev, `forge_ai` for Forge AI.
 
 **Decisions.** A decision has a `kind` — `mulligan`, `bottom`, `priority`, `target`,
 `attack`, `block`, `choose_cards`, `confirm`, `mode` — Forge's `prompt`, the seat's

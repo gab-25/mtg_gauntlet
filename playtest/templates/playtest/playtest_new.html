@@ -27,7 +27,7 @@
                 {% for deck in decks %}
                 <label class="choice">
                     <input type="radio" name="deck" value="{{ deck.id }}"{% if deck == form_deck %} checked{% endif %}
-                        hx-get="{% url 'new_playtest_opponents' %}" hx-target="#opponents" hx-swap="outerHTML" hx-include="this, #opponents input[name=opponents]:checked, #games" />
+                        hx-get="{% url 'new_playtest_opponents' %}" hx-target="#opponents" hx-swap="outerHTML" hx-include="this, #opponents input[name=opponents]:checked, #games, input[name=agent]:checked" />
                     <span class="pips" aria-hidden="true">{% for pip in deck.pips %}<span class="pip" style="background:{{ pip.hex }}"></span>{% endfor %}</span>
                     <span class="choice-main"><span translate="no" class="choice-name">{{ deck.name }}</span><span class="choice-meta">{{ deck.get_format_display }}</span></span>
                     <span class="choice-end">{% include "decks/partials/forge_badge.html" with deck=deck %}</span>
@@ -41,7 +41,21 @@
         {% include "playtest/partials/opponents.html" %}
 
         <section class="panel step" aria-labelledby="step-3">
-            <div class="panel-head step-head"><span class="step-num">03</span><h2 id="step-3" class="step-title">Games per opponent</h2></div>
+            <div class="panel-head step-head"><span class="step-num">03</span><h2 id="step-3" class="step-title">Who plays</h2></div>
+            <div class="panel-body choice-list">
+                {% for value, label, help in agents %}
+                <label class="choice">
+                    <input type="radio" name="agent" value="{{ value }}"{% if value == form_agent %} checked{% endif %}
+                        hx-get="{% url 'new_playtest_opponents' %}" hx-target="#opponents" hx-swap="outerHTML" hx-include="this, input[name=deck]:checked, #opponents input[name=opponents]:checked, #games" />
+                    <span class="choice-main"><span class="choice-name">{{ label }}</span><span class="choice-meta">{{ help }}</span></span>
+                </label>
+                {% endfor %}
+                <p class="field-help">The same player takes every seat of every match: the deck under test and its opponents.</p>
+            </div>
+        </section>
+
+        <section class="panel step" aria-labelledby="step-4">
+            <div class="panel-head step-head"><span class="step-num">04</span><h2 id="step-4" class="step-title">Games per opponent</h2></div>
             <div class="panel-body">
                 <div class="field">
                     <label class="field-label" for="games">Games against each opponent</label>
@@ -52,7 +66,7 @@
         </section>
 
         <details class="panel details">
-            <summary class="panel-head"><span class="step-num">04</span><span class="step-title">Advanced</span></summary>
+            <summary class="panel-head"><span class="step-num">05</span><span class="step-title">Advanced</span></summary>
             <div class="panel-body">
                 <div class="field">
                     <label class="field-label" for="seed">Seed</label>
