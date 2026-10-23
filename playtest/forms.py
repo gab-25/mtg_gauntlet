@@ -11,11 +11,15 @@ from .models import Seat
 
 # An opponent picker value for a metagame deck.
 METAGAME_PREFIX = "metagame:"
-# Every seat of a new match is played by Jev, with ~typesafe/jev-latest
-# (typesafe.MODEL): the user picks decks, not agents or models. The other
-# Seat.Agent values only name the seats of older matches; Forge's AI still
-# takes fallbacks and the decisions the bridge does not expose.
-SEAT_AGENT = Seat.Agent.JEV
+# Who plays every seat of a session: Jev (the default, with ~typesafe/jev-latest,
+# typesafe.MODEL) or Forge's own AI. The user picks one for the whole playtest,
+# never a model. Forge's AI still takes Jev's fallbacks and the decisions the
+# bridge does not expose.
+DEFAULT_AGENT = Seat.Agent.JEV
+AGENTS = (
+    (Seat.Agent.JEV, "Jev", "TypeSafe AI's System One picks among Forge's options through OpenRouter; needs an API key."),
+    (Seat.Agent.FORGE_AI, "Forge AI", "Forge's own AI plays the seat: free, fast, no decision log."),
+)
 # The most opponents one session plays: each match is a few hundred Jev calls.
 MAX_OPPONENTS = 10
 # The most games against one opponent, and in a whole session (opponents ×
@@ -47,6 +51,7 @@ class PlaytestForm:
     deck: Deck
     opponents: list[DeckChoice]
     games: int = 1
+    agent: str = DEFAULT_AGENT
 
 
 def _int(value, default=None):
@@ -119,9 +124,12 @@ def parse_playtest_form(post, user) -> tuple[PlaytestForm | None, list[str]]:
             f"{len(values)} opponent{'s' if len(values) != 1 else ''} × {games} games is {len(values) * games}."
         )
 
-    if not typesafe.api_key():
-        errors.append("Jev plays every seat and needs an OpenRouter API key: set OPENROUTER_API_KEY.")
+    agent = post.get("agent") or DEFAULT_AGENT
+    if agent not in Seat.Agent.values:
+        errors.append("Pick who plays: Jev or Forge AI.")
+    elif agent == Seat.Agent.JEV and not typesafe.api_key():
+        errors.append("Jev needs an OpenRouter API key: set OPENROUTER_API_KEY, or let Forge AI play.")
 
     if errors:
         return None, errors
-    return PlaytestForm(format=fmt, seed=seed, deck=deck, opponents=opponents, games=games), []
+    return PlaytestForm(format=fmt, seed=seed, deck=deck, opponents=opponents, games=games, agent=agent), []

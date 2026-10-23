@@ -4,14 +4,15 @@ An agent is whatever plays a seat. It never decides what is legal: Forge lists t
 options of each decision (see [Forge](forge.md)), and the agent picks one of
 them by index, or delegates the decision to Forge's AI.
 
-**Every seat of a new match is Jev** (`playtest.forms.SEAT_AGENT`): the new-playtest form
-offers decks, not agents or models, and ignores any posted agent or model: every seat
-uses `~typesafe/jev-latest` (`typesafe.MODEL`). Jev is the only agent; `forge_ai` survives for older seats.
+**One player takes every seat of a playtest** (`Playtest.agent`, copied to each
+`Seat.agent`): the new-playtest form's "Who plays" step offers Jev (the default,
+`playtest.forms.DEFAULT_AGENT`) or Forge AI, never a model: a Jev seat always uses
+`~typesafe/jev-latest` (`typesafe.MODEL`). The choices are `playtest.forms.AGENTS`.
 
 | `Seat.Agent` | Class | Network | Notes |
 |---|---|---|---|
-| `jev` | `JevAgent` | OpenRouter | Every new seat. One Jev `choice` per decision; logs its confidence. |
-| `forge_ai` | — | none | Older matches only. Such a seat is created with `controller: "forge_ai"` and never reaches a worker. |
+| `jev` | `JevAgent` | OpenRouter | The default. One Jev `choice` per decision; logs its confidence. |
+| `forge_ai` | — | none | Created with `controller: "forge_ai"`: Forge's AI plays it on the bridge and it never reaches a worker, so it has no decision traces and the match page shows no decisions for it. |
 
 ## The interface
 
@@ -175,7 +176,8 @@ against OpenRouter's `POST /api/v1/systemone`, which serves Jev in TypeSafe's na
 `read_choice(answer, options)` checks an answer names an offered option. Every
 failure is a `TypeSafeError`.
 
-Without `OPENROUTER_API_KEY` the new-playtest form refuses to start: Jev plays every seat.
+Without `OPENROUTER_API_KEY` the new-playtest form refuses to start a Jev playtest; a
+Forge AI one needs no key.
 
 ## Adding an agent
 
@@ -185,8 +187,8 @@ Without `OPENROUTER_API_KEY` the new-playtest form refuses to start: Jev plays e
 2. Add a value to `playtest.models.Seat.Agent` (a migration) and an icon in
    `Seat.agent_icon`.
 3. Build it in `playtest.workers.build_agent` from the `Seat` and the match seed.
-4. To let new matches use it, change `SEAT_AGENT` in `playtest/forms.py` (today every
-   seat is Jev and the form offers no choice).
+4. To offer it, add it to `AGENTS` in `playtest/forms.py` (the "Who plays" step lists
+   them) and, if it should be the default, change `DEFAULT_AGENT`.
 5. Test it without network: pass a fake `ask`, or monkeypatch
    `typesafe.system_one` / `requests.post`, and play it against the `fake_forge`
    fixture (`tests/test_jev_agent.py`, `tests/test_runner.py`).

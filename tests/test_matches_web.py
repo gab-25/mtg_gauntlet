@@ -145,13 +145,15 @@ def test_someone_elses_deck_cannot_be_tested_or_played_against(client, user, dja
 
 
 @pytest.mark.django_db
-def test_a_match_needs_an_api_key_since_jev_plays_every_seat(client, user, monkeypatch):
+def test_a_jev_playtest_needs_an_api_key(client, user, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY")
     decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
     response = client.post("/playtests/create", _form("duel", decks))
     assert response.status_code == 422
     assert b"OPENROUTER_API_KEY" in response.content
-    assert b"no playtest can start" in client.get("/playtests/new").content
+    assert b"no Jev playtest can start" in client.get("/playtests/new").content
+    # The warning is Jev's: with Forge AI picked the form says nothing of the key.
+    assert b"OPENROUTER_API_KEY" not in client.get("/playtests/new?agent=forge_ai").content
 
 
 @pytest.mark.django_db
@@ -637,7 +639,7 @@ def test_the_playtest_page_shows_score_rows_and_run_again(client, user):
     page = client.get(f"/playtests/{playtest.id}").content.decode()
     assert "vs</span> the field" in page and "seed 4417" in page and "1–0–0" in page and "100%" in page
     assert "1 of 1 game done" in page and "Your deck" in page and "14 – 0" in page
-    assert f"/playtests/new?deck={tested.id}&amp;games=1&amp;opponents={rival.id}" in page
+    assert f"/playtests/new?deck={tested.id}&amp;games=1&amp;agent=jev&amp;opponents={rival.id}" in page
     assert f'href="/decks/{tested.id}"' in page.split('aria-label="Breadcrumb"', 1)[1]
     assert 'class="segment won"' in page
 
@@ -708,7 +710,7 @@ def test_picking_a_deck_keeps_the_chosen_opponents_of_its_format(client, user):
     meta = _metagame("modern", archetype="Amulet Titan", rank=1)
     other = _metagame("pauper", archetype="Faeries", rank=1)
     page = client.get("/playtests/new?format=modern").content.decode()
-    assert 'hx-include="this, #opponents input[name=opponents]:checked, #games"' in page
+    assert 'hx-include="this, #opponents input[name=opponents]:checked, #games, input[name=agent]:checked"' in page
     part = client.get("/playtests/new/opponents", {"deck": tested.id, "opponents": [f"metagame:{meta.id}", f"metagame:{other.id}"]}).content.decode()
     assert _checked(part) == [f"metagame:{meta.id}"]
 
@@ -926,3 +928,43 @@ def test_the_playtest_page_and_the_match_summary_show_flagged_decisions(client, 
     assert "Flagged decisions" in page and "2 attack into a killer" in page
     summary = client.get(f"/playtests/{playtest.id}/matches/{match.id}").content.decode()
     assert "2 attack into a killer" in summary and "none" in summary
+
+
+@pytest.mark.django_db
+def test_a_playtest_can_let_forges_ai_play_every_seat(client, user, fake_forge, monkeypatch):
+    """Forge AI seats need no key: the bridge plays them itself and no worker is asked."""
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
+    response = client.post("/playtests/create", _form("duel", decks, agent="forge_ai"))
+    assert response.status_code == 302, response.content
+    playtest = Playtest.objects.get(owner=user)
+    assert playtest.agent == "forge_ai"
+    match = playtest.matches.get()
+    assert [seat.agent for seat in match.seats.order_by("position")] == ["forge_ai", "forge_ai"]
+    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["forge_ai", "forge_ai"]
+    assert match.status == Match.Status.FINISHED, match.error
+    assert not match.events.filter(kind="decision").exists()
+    page = client.get(f"/playtests/{playtest.id}").content.decode()
+    assert "Forge AI on every seat" in page
+    assert f"agent=forge_ai" in page  # Run again keeps the choice
+
+
+@pytest.mark.django_db
+def test_jev_plays_unless_the_form_says_otherwise(client, user, fake_forge):
+    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
+    client.post("/playtests/create", _form("duel", decks))
+    playtest = Playtest.objects.get(owner=user)
+    assert playtest.agent == "jev"
+    assert [seat.agent for seat in playtest.matches.get().seats.all()] == ["jev", "jev"]
+    response = client.post("/playtests/create", _form("duel", decks, agent="chess_engine"))
+    assert response.status_code == 422 and b"Pick who plays" in response.content
+
+
+@pytest.mark.django_db
+def test_the_new_playtest_form_offers_the_player_and_keeps_the_choice(client, user):
+    make_deck(user, fmt="duel")
+    content = client.get("/playtests/new").content.decode()
+    assert 'name="agent" value="jev" checked' in content
+    assert 'name="agent" value="forge_ai"' in content
+    content = client.get("/playtests/new?agent=forge_ai").content.decode()
+    assert 'name="agent" value="forge_ai" checked' in content

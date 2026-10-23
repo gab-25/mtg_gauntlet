@@ -16,7 +16,7 @@
 {% block content %}
 <div class="page-head">
     <div class="page-head-main">
-        <div class="kicker kicker-plain">{{ playtest.get_format_display }} · seed {{ playtest.seed }}{% if playtest.games_per_opponent > 1 %} · {{ playtest.games_per_opponent }} games per opponent{% endif %} · Jev on every seat</div>
+        <div class="kicker kicker-plain">{{ playtest.get_format_display }} · seed {{ playtest.seed }}{% if playtest.games_per_opponent > 1 %} · {{ playtest.games_per_opponent }} games per opponent{% endif %} · {{ playtest.get_agent_display }} on every seat</div>
         <h1 class="page-title"><span translate="no">{{ playtest.deck_name }}</span> <span class="vs">vs</span> the field</h1>
     </div>
     <div class="actions">

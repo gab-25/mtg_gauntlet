@@ -21,6 +21,13 @@ END_REASONS = {
 }
 
 
+class Agent(models.TextChoices):
+    """Who plays a seat: Forge's own AI on the bridge, or Jev answered by a worker."""
+
+    FORGE_AI = "forge_ai", "Forge AI"
+    JEV = "jev", "Jev"
+
+
 class Playtest(models.Model):
     """A test session: one deck plays ``games_per_opponent`` matches against each chosen opponent."""
 
@@ -41,6 +48,8 @@ class Playtest(models.Model):
     # Independent game 1s against each opponent; Forge's seeded coin toss
     # picks who plays first in each.
     games_per_opponent = models.PositiveSmallIntegerField(default=1)
+    # Who plays every seat of every match of the session.
+    agent = models.CharField(max_length=16, choices=Agent.choices, default=Agent.JEV)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -116,10 +125,7 @@ class Match(models.Model):
 
 
 class Seat(models.Model):
-    class Agent(models.TextChoices):
-        # Older matches only: new seats are always played by an agent.
-        FORGE_AI = "forge_ai", "Forge AI"
-        JEV = "jev", "Jev"
+    Agent = Agent
 
     match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name="seats")
     # 0-based place at the table.
