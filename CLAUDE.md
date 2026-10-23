@@ -4,8 +4,8 @@ Django app where AI agents playtest competitive Magic: The Gathering decks (Stan
 Pioneer, Modern, Legacy, Vintage, Pauper, Duel Commander; Commander decks import but
 two-seat play only) under real rules: Forge, behind the
 [`mtg_forge_engine`](https://github.com/gab-25/mtg_forge_engine) bridge, plays every
-game, and Jev plays every seat, picking among its options (users pick decks, not
-agents). Start
+game, and its AI plays every seat (users pick decks, not agents); Jev is the
+experimental agent the benchmark measures. Start
 from `README.md` (features, rules, configuration); details live in `docs/`.
 
 ## Commands

@@ -20,7 +20,6 @@ from decks.presentation import deck_pips
 from mtg_gauntlet.access import get_owned_or_404
 
 from . import forge
-from .agents import typesafe
 from .agents.jev_agent import filtered_state
 from .forms import (
     MAX_GAMES,
@@ -175,8 +174,6 @@ def _form_context(user, data, preset_top=False, **extra) -> dict:
         "max_games_per_opponent": MAX_GAMES_PER_OPPONENT,
         "max_games": MAX_GAMES,
         "top_metagame": TOP_METAGAME,
-        "jev_model": typesafe.MODEL,
-        "jev_available": typesafe.api_key() is not None,
         **extra,
     }
 
@@ -481,7 +478,6 @@ def _live_context(match, tab="summary", show="all", params=None) -> dict:
         "log": _shown(log_rows(events, {seat.position: seat.deck_name for seat in seats}), show),
         "summary": summary,
         "seat_stats": [(seat, by_seat.get(seat.position)) for seat in seats],
-        "jev_model": typesafe.MODEL,
         "tab": tab,
         "show": show,
         "log_filters": (("all", "Everything"), ("key", "Key moments"), ("fallbacks", "Fallbacks to Forge AI")),

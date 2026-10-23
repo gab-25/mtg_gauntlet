@@ -55,7 +55,17 @@ class FakeGame:
         self.leased = False
         self.next_card = 1
         self.script = self._play()
-        self._advance(None)
+        # A game between Forge's AIs runs on the bridge's thread and takes a few seconds;
+        # here it plays out on the first read of its events or state, so a game created
+        # and aborted at once is "aborted", as on the bridge.
+        self.started = False
+        if "external" in self.controllers:
+            self._start()
+
+    def _start(self) -> None:
+        if not self.started:
+            self.started = True
+            self._advance(None)
 
     # --- the bridge's view of the game ------------------------------------------
 
@@ -223,6 +233,7 @@ class FakeGame:
     def abort(self) -> None:
         if self.status != "running":
             return
+        self.started = True  # a game aborted before anyone read it never plays
         self.pending = None
         self.end_reason = "aborted"
         self.winner = None
@@ -293,11 +304,15 @@ class FakeForge:
 
     def game(self, game_id: str) -> dict:
         with self.cond:
-            return self._game(game_id).summary()
+            game = self._game(game_id)
+            game._start()
+            return game.summary()
 
     def events(self, game_id: str, since: int = 0) -> dict:
         with self.cond:
-            events = list(self._game(game_id).events[since:])
+            game = self._game(game_id)
+            game._start()
+            events = list(game.events[since:])
         return {"events": events, "next": since + len(events)}
 
     def lease(self, wait: float = 30, game_id: str | None = None) -> dict | None:
