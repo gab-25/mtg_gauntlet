@@ -37,12 +37,15 @@ hands the decision back to Forge's AI.
 
   A constructed deck lists its sideboard under a `Sideboard` header; the sideboard is
   imported and checked, but a match is a single game played with the main deck.
-- **Jev on every seat**: Jev picks each of Forge's options through OpenRouter, and its
-  confidence and runner-up options are logged. There is no agent to choose: both seats
-  are Jev, always on `~typesafe/jev-latest`. Forge's own AI never plays a seat;
-  it only takes fallbacks and what the bridge does not expose. A seat that is unsure
-  (confidence below 0.2) or cannot reach Jev hands that decision to Forge's AI,
-  with the reason logged, so a match never stalls on a model.
+- **Jev on every seat**: Jev picks each of Forge's options through OpenRouter, the way
+  [Argentum Engine](https://github.com/wingedsheep/argentum-engine) plays it — the whole
+  view, the deck list and the picks of the session as state, the options in Forge's
+  order, one standing instruction, no confidence gate — and its confidence and runner-up
+  options are logged. There is no agent to choose: both seats are Jev, always on
+  `~typesafe/jev-latest`. Forge's own AI never plays a seat; it only takes fallbacks and
+  what the bridge does not expose. A seat that cannot reach Jev, or whose request would
+  not fit Jev's context, hands that decision to Forge's AI, with the reason logged, so a
+  match never stalls on a model.
 - **Coverage**: Forge either knows a card or the match is refused, naming the card.
   Each seat lists the cards Forge knows but cannot play fully. The deck page checks a
   deck on demand (**Check with Forge**), never on page view, and keeps the answer:
@@ -241,7 +244,7 @@ local development; real environment variables win):
 | `CELERY_CONCURRENCY` | Compose only: matches the worker follows at once | `16` |
 | `FORGE_WORKERS` | Worker threads answering Forge's decisions: the most Jev calls in flight; `0` lets each match's runner answer its own | `4` |
 | `OPENROUTER_API_KEY` | Jev's key: required to start a match | — |
-| `MAX_AGENT_CALLS` | Model calls per seat; past it the seat delegates to Forge's AI | `400` |
+| `MAX_AGENT_CALLS` | Model calls per seat; past it the seat delegates to Forge's AI. Without a confidence gate Jev answers every decision: a long Duel Commander game takes about 500 | `1000` |
 | `MAX_MATCH_SECONDS` | Match wall clock; past it model seats delegate to Forge's AI | `1800` |
 | `SECRET_KEY` / `DEBUG` | Django basics | dev key / on |
 | `CSRF_TRUSTED_ORIGINS` | Comma-separated origins behind a proxy | — |
