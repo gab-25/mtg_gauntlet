@@ -68,8 +68,7 @@ class Match(models.Model):
     playtest = models.ForeignKey(Playtest, on_delete=models.CASCADE, related_name="matches")
     format = models.CharField(max_length=16, choices=format_choices(), default=DEFAULT_FORMAT)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
-    # Seeds Forge's shuffles and Jev's option order: the same seed and the same
-    # answers replay the same game.
+    # Seeds Forge's shuffles: the same seed and the same answers replay the same game.
     seed = models.BigIntegerField()
     # The game on the Forge bridge, set once the bridge accepted the decks.
     forge_game_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
@@ -199,8 +198,8 @@ class MatchEvent(models.Model):
 class DecisionTrace(models.Model):
     """What a seat's agent saw and answered for one decision it was asked (#72).
 
-    One row per decision that reached Jev — answered, under the confidence
-    gate or failed — never for budget or forced passes. ``options`` are in the
+    One row per decision that reached Jev — answered or failed — never for
+    budget or forced passes. ``options`` are in the
     order Jev was shown them; ``probabilities`` map an option's index (as a
     string) to Jev's probability. The runner links ``event`` and settles
     ``outcome`` (the worker marks ``no_effect`` as soon as it sees the same

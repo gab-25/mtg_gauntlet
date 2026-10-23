@@ -43,12 +43,18 @@ def _labels(trace) -> list[str]:
     return [option["label"] for option in trace.options]
 
 
+def _state(trace) -> dict:
+    from .agents.jev_agent import filtered_state
+
+    return filtered_state(trace.state or {})
+
+
 def _you(trace) -> dict:
-    return (trace.state or {}).get("you") or {}
+    return _state(trace).get("you") or {}
 
 
 def _own_empty_stack(trace) -> bool:
-    state = trace.state or {}
+    state = _state(trace)
     return state.get("active_player") == "you" and not state.get("stack")
 
 

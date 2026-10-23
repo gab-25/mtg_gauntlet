@@ -32,7 +32,7 @@ from django.utils import timezone
 from . import forge
 from .agents import typesafe
 from .agents.base import Decision, delegate
-from .agents.jev_agent import JevAgent
+from .agents.jev_agent import JevAgent, deck_line
 from .models import DecisionTrace, Match, Seat
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ LEASE_WAIT = 30
 # the bridge starts a game before the app stores its id.
 UNKNOWN_GAME_GRACE = 5.0
 # Past either budget, model-backed seats delegate every remaining decision.
-DEFAULT_MAX_AGENT_CALLS = 400
+DEFAULT_MAX_AGENT_CALLS = 1000
 DEFAULT_MAX_MATCH_SECONDS = 1800
 # Pause after the bridge could not be reached, before polling again.
 ERROR_BACKOFF = 2.0
@@ -70,11 +70,27 @@ def max_match_seconds() -> int:
     return _env_int("MAX_MATCH_SECONDS", DEFAULT_MAX_MATCH_SECONDS)
 
 
-def build_agent(seat: Seat, seed: int):
-    # Offset the seed per seat, so two seats of one kind don't mirror each other.
-    agent_seed = seed + seat.position
+def deck_list(seat: Seat) -> str:
+    """The seat's deck as Argentum tells Jev: the main deck and commander by name and
+    quantity, no order, and the archetype (the metagame deck's, or the deck's name)."""
+    from .runner import seat_cards  # the runner imports this module
+
+    try:
+        cards = seat_cards(seat)
+    except forge.ForgeError:
+        return ""
+    counts: dict[str, int] = {}
+    for item in cards:
+        if item.get("board", "main") == "main" or item.get("is_commander"):
+            name = item["data"]["name"]
+            counts[name] = counts.get(name, 0) + int(item.get("quantity") or 0)
+    archetype = seat.metagame_deck.archetype if seat.metagame_deck_id and seat.metagame_deck else seat.deck_name
+    return deck_line(counts, archetype or "")
+
+
+def build_agent(seat: Seat):
     if seat.agent == Seat.Agent.JEV:
-        return JevAgent(seat.model or typesafe.MODEL, seed=agent_seed)
+        return JevAgent(seat.model or typesafe.MODEL, deck=deck_list(seat))
     # forge_ai seats never reach a worker; anything else is Forge's AI too.
     return None
 
@@ -96,8 +112,8 @@ class SeatAgent:
 class AgentCache:
     """One agent per (match, seat), kept for the whole game.
 
-    Agents hold their seeded RNG: the same agent answering the game's
-    decisions in order is what makes a seat replay from its seed.
+    Agents hold their session (the picks Jev made so far in a step): the same
+    agent answering the game's decisions in order is what keeps it coherent.
     A game's decisions come one at a time, so one entry is used by one worker
     at a time — unless an agent outlives the bridge's DECISION_TIMEOUT, when
     the next decision may arrive meanwhile and that game stops replaying exactly.
@@ -110,7 +126,7 @@ class AgentCache:
         key = (match.pk, seat.position)
         with self.lock:
             if key not in self.entries:
-                self.entries[key] = SeatAgent(build_agent(seat, match.seed))
+                self.entries[key] = SeatAgent(build_agent(seat))
             return self.entries[key]
 
     def forget(self, match_id) -> None:
@@ -241,6 +257,9 @@ def decide(decision: dict, *, cache: AgentCache = agents, grace: float = UNKNOWN
     failed_play, options = _drop_failed_plays(entry, decision)
     if failed_play and entry.last_trace is not None:
         DecisionTrace.objects.filter(pk=entry.last_trace).update(outcome=DecisionTrace.Outcome.NO_EFFECT)
+    if failed_play and len(options) > 1 and hasattr(entry.agent, "note"):
+        # As Argentum tells Jev when its engine rejects a move.
+        entry.agent.note(f"Engine rejected {failed_play}: Forge did not carry it out. Correct the move; do not repeat it.")
     # Every play failed: passing is all that is left.
     answer = Decision(options[0]["index"]) if len(options) == 1 else _ask(match, entry, decision, options)
     entry.last_play = next(

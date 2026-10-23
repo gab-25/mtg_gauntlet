@@ -130,7 +130,7 @@ pool size bounds the model calls in flight across every running match.
   consumed in order.
 - A decision for a game not yet linked to a match waits up to 5 seconds for the link
   (the bridge starts a game before the view stores its id), then is delegated.
-- Model-backed agents are metered: past `MAX_AGENT_CALLS` (400) for the seat or
+- Model-backed agents are metered: past `MAX_AGENT_CALLS` (1000) for the seat or
   `MAX_MATCH_SECONDS` (1800) since the match started, the seat delegates every
   remaining decision (`fallback_kind = "budget"`).
 - A play Forge does not carry out brings the very same priority decision back

@@ -15,7 +15,7 @@ class Decision:
     # Why the agent chose it, in its own words (empty for agents that don't say).
     reasoning: str = ""
     # Set when the agent hands the decision to Forge's AI: why, in words, and
-    # the kind of reason — "low_confidence", "error" or "budget".
+    # the kind of reason — "error" or "budget" ("low_confidence" in older matches).
     fallback_reason: str = ""
     fallback_kind: str = ""
     # For a model that answers with a distribution (Jev): how sure it was, the

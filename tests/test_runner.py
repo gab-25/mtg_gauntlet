@@ -88,13 +88,20 @@ def test_jev_against_forge_ai_only_asks_the_jev_seat(user, fake_forge):
 
 
 def test_the_same_seed_replays_the_same_game(user, fake_forge, jev):
-    # Jev's first option: the seeded shuffle decides which one it is.
-    jev.prefer = lambda criteria: next(iter(criteria))
+    jev.prefer = lambda criteria: list(criteria)[-1]
     first = _play(_match(user, seed=9))
     second = _play(_match(user, seed=9))
     texts = lambda match: list(match.events.values_list("text", flat=True))  # noqa: E731
     assert texts(first) == texts(second)
-    assert texts(first) != texts(_play(_match(user, seed=10)))
+
+
+@pytest.mark.django_db
+def test_build_agent_tells_jev_its_deck_list(user):
+    """As Argentum does: Jev knows what its deck holds, not where the cards are."""
+    match = _match(user, agents=("jev", "forge_ai"))
+    agent = workers.build_agent(match.seats.get(position=0))
+    assert agent.deck.startswith("Deck (order unknown): {") and agent.deck.endswith(". Archetype: Deck 0")
+    assert "Mountain=24" in agent.deck and "Spell 0=4" in agent.deck and "Side 0" not in agent.deck
 
 
 def test_a_duel_commander_match_sends_the_commander(user, fake_forge):
@@ -164,17 +171,15 @@ def test_a_jev_match_stores_confidence_probabilities_and_model_on_every_decision
     assert summary["confidence"]["median"] == 0.9 and summary["decisions"]["agent"] > 0
 
 
-def test_low_confidence_delegates_with_jevs_distribution(user, fake_forge, jev):
+def test_an_unsure_jev_still_decides(user, fake_forge, jev):
+    """No confidence gate, as in Argentum: nothing is delegated, the confidence is only logged."""
     jev.confidence = 0.05
     match = _play(_match(user, agents=("jev", "forge_ai")))
     assert match.status == Match.Status.FINISHED, match.error
-    fallbacks = list(match.events.filter(kind="fallback", seat_position=0))
-    assert fallbacks and not match.events.filter(kind="decision", seat_position=0).exists()
-    payload = fallbacks[0].payload
-    assert payload["reason"] == "delegate" and payload["fallback_kind"] == "low_confidence"
-    assert payload["confidence"] == 0.05 and payload["probabilities"]
-    assert match.summary["seats"][0]["fallbacks"] == {"low_confidence": len(fallbacks)}
-    assert match.summary["seats"][0]["confidence"]["low"] == len(fallbacks)
+    decisions = list(match.events.filter(kind="decision", seat_position=0))
+    assert decisions and not match.events.filter(kind="fallback", seat_position=0).exists()
+    assert decisions[0].payload["confidence"] == 0.05
+    assert match.summary["seats"][0]["confidence"]["median"] == 0.05
 
 
 def test_an_unreachable_model_delegates_and_the_match_goes_on(user, fake_forge, jev):
@@ -207,7 +212,7 @@ def test_an_agent_that_crashes_delegates(user, fake_forge, monkeypatch):
         def choose(self, *args, **kwargs):
             raise RuntimeError("bug")
 
-    monkeypatch.setattr(workers, "build_agent", lambda seat, seed: Broken())
+    monkeypatch.setattr(workers, "build_agent", lambda seat: Broken())
     match = _play(_match(user))
     assert match.status == Match.Status.FINISHED
     assert all("agent error: bug" in e.payload["fallback_reason"] for e in match.events.filter(kind="fallback"))
