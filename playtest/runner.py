@@ -5,11 +5,8 @@ deck with a card Forge does not know (:class:`~.forge.ForgeDeckError`) before
 any game starts; the new-playtest view calls it, so a refused match is never
 created. :func:`run_match`, the background job, then copies the bridge's
 events into ``MatchEvent`` rows as they arrive and, when the game is over,
-stores the winner, the end reason and the summary.
-
-Decisions are answered by the worker pool (:mod:`.workers`). When no pool runs
-in this process (a web process, ``FORGE_WORKERS=0``, and tests) the runner answers its own
-match's decisions in between reading the log.
+stores the winner, the end reason and the summary. Forge's AI plays every
+seat: nothing here answers the game.
 """
 
 import logging
@@ -22,22 +19,19 @@ from django.utils import timezone
 from decks.formats import FORMATS
 from mtg_gauntlet.logging_context import job_log_context
 
-from . import forge, workers
-from .models import DecisionTrace, Match, MatchEvent, Seat
-from .checks import check_match, trace_stats
+from . import forge
+from .models import Match, MatchEvent, Seat
 from .summary import current_lives, summarize_match, table_names
 
 logger = logging.getLogger(__name__)
 
 # Pause between two reads of the log when nothing happened.
 POLL_SECONDS = 1.0
-# How long the runner answers its own decisions before reading the log again.
-SELF_SERVE_WAIT = 0.5
 # How long the bridge may stay unreachable while a game is followed (a
 # restart of the web container, a network blip) before the match fails.
 MAX_OUTAGE_SECONDS = 60
 # A game the bridge never ends is aborted after this long (the bridge's own
-# turn cap and timeouts normally end it much sooner).
+# turn cap normally ends it much sooner).
 DEFAULT_MATCH_TIMEOUT = 3 * 3600
 
 
@@ -78,7 +72,6 @@ def start_game(match: Match, client=None) -> dict:
                 {
                     "name": name,
                     "decklist": forge.decklist_text(seat_cards(seat), has_commander=has_commander),
-                    "controller": seat.controller,
                 }
                 for seat, name in zip(seats, names)
             ],
@@ -113,13 +106,11 @@ def _store(match: Match, events: list[dict]) -> None:
                 kind=event["kind"][:32],
                 text=event.get("text") or "",
                 payload=event.get("payload") or {},
-                reasoning=(event.get("payload") or {}).get("reason", "") if event["kind"] == "decision" else "",
             )
             for event in events
         ],
         ignore_conflicts=True,
     )
-    _link_traces(match, events)
     turn = max((event.get("turn") or 0 for event in events), default=0)
     if turn > match.turn:
         match.turn = turn
@@ -128,28 +119,6 @@ def _store(match: Match, events: list[dict]) -> None:
     if any(event["kind"] == "log" and (event.get("payload") or {}).get("type") == "LIFE" for event in events):
         for position, life in current_lives(events, list(match.seats.all())).items():
             Seat.objects.filter(match_id=match.pk, position=position).update(life=life)
-
-
-def _link_traces(match: Match, events: list[dict]) -> None:
-    """Points each decision trace at the event the bridge logged for its answer (``meta.trace``)."""
-    traced = {
-        event["seq"]: event["payload"]["trace"]
-        for event in events
-        if event["kind"] in ("decision", "fallback") and isinstance((event.get("payload") or {}).get("trace"), int)
-    }
-    if not traced:
-        return
-    ids = dict(MatchEvent.objects.filter(match_id=match.pk, seq__in=traced).values_list("seq", "id"))
-    for seq, trace_id in traced.items():
-        if seq in ids:
-            DecisionTrace.objects.filter(pk=trace_id, match_id=match.pk).update(event_id=ids[seq])
-
-
-def settle_traces(match_id) -> None:
-    """The outcome of every trace still open when the match ends: done, or delegated to Forge's AI."""
-    open_traces = DecisionTrace.objects.filter(match_id=match_id, outcome=DecisionTrace.Outcome.PENDING)
-    open_traces.filter(choice__isnull=False).update(outcome=DecisionTrace.Outcome.DONE)
-    open_traces.filter(choice__isnull=True).update(outcome=DecisionTrace.Outcome.DELEGATED)
 
 
 def _match_timeout() -> float:
@@ -164,10 +133,6 @@ def follow(match: Match, client) -> dict:
     outage_since = None
     while True:
         try:
-            if not workers.running():
-                decision = client.lease(SELF_SERVE_WAIT, match.forge_game_id)
-                if decision is not None:
-                    workers.serve(client, decision, grace=0)
             batch = client.events(match.forge_game_id, since)
             outage_since = None
             if batch["events"]:
@@ -197,14 +162,12 @@ def follow(match: Match, client) -> dict:
         if time.monotonic() > deadline:
             client.abort(match.forge_game_id)
             raise forge.ForgeError(f"The game did not end within {_match_timeout():.0f} seconds; it was aborted.")
-        if workers.running():
-            time.sleep(POLL_SECONDS)
+        time.sleep(POLL_SECONDS)
 
 
 def _fail(match_id, error: str, client=None, game_id: str = "") -> None:
-    """Marks the match failed and ends its game, so no agent keeps playing it."""
+    """Marks the match failed and ends its game, so Forge stops playing it."""
     Match.objects.filter(pk=match_id).update(status=Match.Status.FAILED, error=error, finished_at=timezone.now())
-    settle_traces(match_id)
     if client is not None and game_id:
         try:
             client.abort(game_id)
@@ -212,35 +175,14 @@ def _fail(match_id, error: str, client=None, game_id: str = "") -> None:
             logger.warning("Could not abort game %s: %s", game_id, exc)
 
 
-def _analyse(match: Match) -> dict[int, dict]:
-    """Settles the match's traces, flags the suspicious ones (:mod:`.checks`); returns each seat's trace stats."""
-    settle_traces(match.pk)
-    traces = list(match.traces.all())
-    flags = check_match(traces, match.format)
-    for trace in traces:
-        trace.flags = flags.get(trace.id, [])
-    DecisionTrace.objects.bulk_update(traces, ["flags"])
-    return trace_stats(traces)
-
-
 def _finish(match: Match, game: dict) -> None:
-    try:
-        traced = _analyse(match)
-    except Exception:  # noqa: BLE001 - the analysis must never cost the match's result.
-        logger.exception("Could not analyse the decision traces")
-        settle_traces(match.pk)
-        traced = {}
     seats = list(match.seats.all())
     events = list(match.events.all())
     summary = summarize_match(events, seats, match.format, game)
-    for seat in summary["seats"]:
-        seat.update(traced.get(seat["seat"], {}))
     status = game["status"]
     error = ""
     if status == "failed":
         result, error = Match.Status.FAILED, f"Forge failed: {game.get('error') or 'unknown error'}"
-    elif status == "aborted" and game.get("end_reason") == "orphaned":
-        result, error = Match.Status.FAILED, "No worker answered the game's decisions: the bridge abandoned it."
     elif status == "aborted":
         result = Match.Status.STOPPED
     else:
@@ -286,5 +228,3 @@ def run_match(match_id) -> None:
         except Exception as exc:  # noqa: BLE001 - record any failure for the user.
             logger.exception("Match failed")
             _fail(match_id, str(exc), client, match.forge_game_id)
-        finally:
-            workers.agents.forget(match.pk)

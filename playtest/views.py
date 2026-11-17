@@ -1,15 +1,13 @@
 """Playtest views: set up a session, follow it and its matches, read a match's log."""
 
-import json
 import logging
 import uuid
 from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import F, Q
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -20,21 +18,11 @@ from decks.presentation import deck_pips
 from mtg_gauntlet.access import get_owned_or_404
 
 from . import forge
-from .agents import typesafe
-from .agents.jev_agent import filtered_state
-from .forms import (
-    MAX_GAMES,
-    MAX_GAMES_PER_OPPONENT,
-    MAX_OPPONENTS,
-    METAGAME_PREFIX,
-    AGENTS,
-    DEFAULT_AGENT,
-    parse_playtest_form,
-)
-from .models import DecisionTrace, Match, Playtest, Seat
+from .forms import MAX_GAMES, MAX_GAMES_PER_OPPONENT, MAX_OPPONENTS, METAGAME_PREFIX, parse_playtest_form
+from .models import Match, Playtest, Seat
 from .runner import start_game
-from .stats import flag_totals, opponent_source, record
-from .summary import QUIET_LOG, event_row, fallback_executions, fallback_reason
+from .stats import opponent_source, record
+from .summary import QUIET_LOG
 from .tasks import run_match_task
 
 logger = logging.getLogger(__name__)
@@ -171,15 +159,11 @@ def _form_context(user, data, preset_top=False, **extra) -> dict:
         "refused": refused,
         "form_seed": data.get("seed", ""),
         "form_games": games,
-        "form_agent": data.get("agent") if data.get("agent") in Seat.Agent.values else DEFAULT_AGENT,
-        "agents": AGENTS,
         "chosen_games": len(chosen) * games,
         "max_opponents": MAX_OPPONENTS,
         "max_games_per_opponent": MAX_GAMES_PER_OPPONENT,
         "max_games": MAX_GAMES,
         "top_metagame": TOP_METAGAME,
-        "jev_model": typesafe.MODEL,
-        "jev_available": typesafe.api_key() is not None,
         **extra,
     }
 
@@ -214,16 +198,16 @@ def _new_session(user, form) -> Playtest:
     with transaction.atomic():
         playtest = Playtest.objects.create(
             owner=user, format=form.format, deck=form.deck, deck_name=form.deck.name, seed=form.seed,
-            games_per_opponent=form.games, agent=form.agent,
+            games_per_opponent=form.games,
         )
         for index, opponent in enumerate(form.opponents):
             for game in range(form.games):
                 seed = form.seed + index * form.games + game
                 match = Match.objects.create(owner=user, playtest=playtest, format=form.format, seed=seed)
                 Seat.objects.bulk_create([
-                    Seat(match=match, position=0, deck=form.deck, deck_name=form.deck.name, agent=form.agent),
+                    Seat(match=match, position=0, deck=form.deck, deck_name=form.deck.name),
                     Seat(match=match, position=1, deck=opponent.deck, metagame_deck=opponent.metagame_deck,
-                         deck_name=opponent.name, agent=form.agent),
+                         deck_name=opponent.name),
                 ])
     return playtest
 
@@ -279,7 +263,7 @@ def _run_again_url(playtest, rows) -> str | None:
     """The new-playtest form filled with this session's deck and its opponents still around."""
     if playtest.deck_id is None:
         return None
-    params = [("deck", playtest.deck_id), ("games", playtest.games_per_opponent), ("agent", playtest.agent)]
+    params = [("deck", playtest.deck_id), ("games", playtest.games_per_opponent)]
     for row in rows:
         seat = row["opponent"]
         if seat is None:
@@ -306,7 +290,6 @@ def _playtest_context(playtest) -> dict:
         "session": session,
         "playtest": playtest,
         "record": record(playtest.matches.all()),
-        "flag_totals": flag_totals(playtest.matches.all()),
         "done": done,
         "total": len(session["rows"]),
         "playing": sum(row["result"] == "running" for row in session["rows"]),
@@ -351,118 +334,35 @@ def delete_playtest(request, playtest_id):
 
 
 
-
-
-def log_rows(events, names: dict[int, str]) -> list[dict]:
-    """The match log as the page shows it: Forge's narrative, the agents'
-    decisions with their confidence, fallbacks with their reason, and runs of
-    Forge-AI decisions folded into one line."""
+def log_rows(events) -> list[dict]:
+    """The match log as the page shows it: Forge's narrative, without the quiet categories."""
     rows = []
-    # A fallback's forge_ai twin is the same decision: the fallback line says it.
-    executions = fallback_executions([event_row(event) for event in events])
-    for index, event in enumerate(events):
+    for event in events:
         payload = event.payload or {}
-        if index in executions or (event.kind == "log" and payload.get("type") in QUIET_LOG):
+        if event.kind == "log" and payload.get("type") in QUIET_LOG:
             continue
-        if event.kind == "forge_ai":
-            last = rows[-1] if rows else None
-            if last and last["kind"] == "forge_ai" and last["seat"] == event.seat_position:
-                last["count"] += 1
-                method = payload.get("method", "")
-                if method and method not in last["methods"]:
-                    last["methods"].append(method)
-                continue
-            rows.append({
-                "kind": "forge_ai", "seq": event.seq, "seat": event.seat_position, "who": names.get(event.seat_position, ""),
-                "count": 1, "methods": [payload.get("method", "")], "event": event,
-            })
-            continue
-        row = {"kind": event.kind, "seq": event.seq, "seat": event.seat_position, "who": names.get(event.seat_position, ""), "event": event}
-        if event.kind == "log":
-            row["headline"] = payload.get("type") in ("TURN", "GAME_OUTCOME")
-        elif event.kind == "fallback":
-            row["reason"] = fallback_reason(payload)
-        rows.append(row)
+        rows.append({
+            "kind": event.kind,
+            "seq": event.seq,
+            "headline": event.kind == "log" and payload.get("type") in ("TURN", "GAME_OUTCOME"),
+            "event": event,
+        })
     return rows
 
 
 # The match page's tabs (``?tab=``) and the log's filters (``?show=``).
-MATCH_TABS = ("summary", "log", "decisions")
-LOG_FILTERS = ("all", "key", "fallbacks")
+MATCH_TABS = ("summary", "log")
+LOG_FILTERS = ("all", "key")
 
 
 def _shown(rows, show: str) -> list[dict]:
     """The log rows a filter keeps: key moments are turns and the outcome."""
     if show == "key":
-        return [row for row in rows if row.get("headline") or row["kind"] == "game_over"]
-    if show == "fallbacks":
-        return [row for row in rows if row["kind"] == "fallback"]
+        return [row for row in rows if row["headline"] or row["kind"] == "game_over"]
     return rows
 
 
-# The decision inspector's filters (``?only=``), besides ``?seat=`` (1-based) and ``?kind=``.
-DECISION_FILTERS = (
-    ("all", "Every decision"),
-    ("fallbacks", "Forge AI decided"),
-    ("flagged", "Flagged"),
-    ("no_effect", "No effect"),
-    ("disagree", "Disagrees with Forge AI"),
-)
-
-
-def _decisions(match, seat: str = "", kind: str = "", only: str = "") -> list:
-    """The match's decision traces the inspector's filters keep, in order."""
-    traces = match.traces.all()
-    if seat.isdigit():
-        traces = traces.filter(seat_position=int(seat) - 1)
-    if kind:
-        traces = traces.filter(kind=kind)
-    if only == "fallbacks":
-        traces = traces.filter(Q(choice__isnull=True) | Q(outcome=DecisionTrace.Outcome.DELEGATED))
-    elif only == "no_effect":
-        traces = traces.filter(outcome=DecisionTrace.Outcome.NO_EFFECT)
-    elif only == "disagree":
-        traces = (
-            traces.filter(choice__isnull=False, forge_ai_choice__isnull=False)
-            .exclude(outcome=DecisionTrace.Outcome.DELEGATED)
-            .exclude(choice=F("forge_ai_choice"))
-        )
-    traces = list(traces)
-    if only == "flagged":
-        traces = [trace for trace in traces if trace.flags]
-    return traces
-
-
-def _filter_query(seat: str, kind: str, only: str) -> str:
-    return urlencode([(key, value) for key, value in (("seat", seat), ("kind", kind), ("only", only)) if value and value != "all"])
-
-
-def _decision_filters(params) -> dict:
-    """The inspector's filters from a query string, and the query that keeps them."""
-    seat, kind, only = params.get("seat", ""), params.get("kind", ""), params.get("only", "")
-    seat = seat if seat.isdigit() else ""
-    only = only if only in dict(DECISION_FILTERS) else "all"
-    return {"seat_filter": seat, "kind_filter": kind, "only": only, "decision_query": _filter_query(seat, kind, only)}
-
-
-def _decision_chips(match, filters: dict) -> dict:
-    """The inspector's filter chips: ``(label, query, active)``; a seat or kind chip toggles."""
-    seat, kind, only = filters["seat_filter"], filters["kind_filter"], filters["only"]
-    seats = [str(position + 1) for position in match.seats.values_list("position", flat=True)]
-    kinds = sorted(set(match.traces.values_list("kind", flat=True)))
-    return {
-        "only_chips": [
-            (label, _filter_query(seat, kind, value), value == only)
-            for value, label in DECISION_FILTERS
-            # Only a bridge that says what Forge's AI would pick (#75) can disagree.
-            if value != "disagree" or value == only or match.traces.exclude(forge_ai_choice=None).exists()
-        ],
-        "seat_chips": [(f"Seat {s}", _filter_query("" if s == seat else s, kind, only), s == seat) for s in seats],
-        "kind_chips": [(k, _filter_query(seat, "" if k == kind else k, only), k == kind) for k in kinds],
-    }
-
-
-def _live_context(match, tab="summary", show="all", params=None) -> dict:
+def _live_context(match, tab="summary", show="all") -> dict:
     tab = tab if tab in MATCH_TABS else "summary"
     show = show if show in LOG_FILTERS else "all"
     seats = list(match.seats.select_related("metagame_deck"))
@@ -472,8 +372,6 @@ def _live_context(match, tab="summary", show="all", params=None) -> dict:
     siblings = list(match.playtest.matches.order_by("seed").values_list("id", "seed"))
     later = [match_id for match_id, seed in siblings if seed > match.seed]
     opponent = next((seat for seat in seats if seat.position == 1), None)
-    filters = _decision_filters(params or {})
-    inspecting = tab == "decisions"
     return {
         "match": match,
         "playtest": match.playtest,
@@ -481,18 +379,13 @@ def _live_context(match, tab="summary", show="all", params=None) -> dict:
         "opponent": opponent,
         "sources": {seat.position: opponent_source(seat) for seat in seats},
         "event_count": len(events),
-        "log": _shown(log_rows(events, {seat.position: seat.deck_name for seat in seats}), show),
+        "log": _shown(log_rows(events), show),
         "summary": summary,
         "seat_stats": [(seat, by_seat.get(seat.position)) for seat in seats],
-        "jev_model": typesafe.MODEL,
         "tab": tab,
         "show": show,
-        "log_filters": (("all", "Everything"), ("key", "Key moments"), ("fallbacks", "Fallbacks to Forge AI")),
+        "log_filters": (("all", "Everything"), ("key", "Key moments")),
         "next_match_id": later[0] if later else None,
-        "decisions": _decisions(match, filters["seat_filter"], filters["kind_filter"], filters["only"]) if inspecting else [],
-        "has_traces": inspecting and match.traces.exists(),
-        **(_decision_chips(match, filters) if inspecting else {}),
-        **filters,
     }
 
 
@@ -508,7 +401,7 @@ def _match_or_404(user, playtest_id, match_id) -> Match:
 @require_http_methods(["GET"])
 def match_detail(request, playtest_id, match_id):
     match = _match_or_404(request.user, playtest_id, match_id)
-    context = _live_context(match, request.GET.get("tab", ""), request.GET.get("show", ""), request.GET)
+    context = _live_context(match, request.GET.get("tab", ""), request.GET.get("show", ""))
     return render(request, "playtest/match_detail.html", context)
 
 
@@ -517,42 +410,8 @@ def match_detail(request, playtest_id, match_id):
 def match_live(request, playtest_id, match_id):
     """The scoreboard and log region, polled by HTMX while the match runs."""
     match = _match_or_404(request.user, playtest_id, match_id)
-    context = _live_context(match, request.GET.get("tab", ""), request.GET.get("show", ""), request.GET)
+    context = _live_context(match, request.GET.get("tab", ""), request.GET.get("show", ""))
     return render(request, "playtest/partials/match_live.html", context)
-
-
-@login_required
-@require_http_methods(["GET"])
-def decision_detail(request, playtest_id, match_id, trace_id):
-    """One decision as Jev saw it: the state, Forge's prompt, every option with its facts and probability."""
-    match = _match_or_404(request.user, playtest_id, match_id)
-    trace = get_object_or_404(DecisionTrace, pk=trace_id, match=match)
-    filters = _decision_filters(request.GET)
-    siblings = [t.id for t in _decisions(match, filters["seat_filter"], filters["kind_filter"], filters["only"])]
-    position = siblings.index(trace.id) if trace.id in siblings else None
-    seats = {seat.position: seat for seat in match.seats.all()}
-    options = []
-    for option in trace.options:
-        p = trace.probabilities.get(str(option["index"]))
-        options.append({
-            **option,
-            "p": p,
-            "percent": round(100 * (p or 0)),
-            "chosen": option["index"] == trace.choice,
-            "forge_ai": option["index"] == trace.forge_ai_choice,
-        })
-    return render(request, "playtest/decision_detail.html", {
-        "match": match,
-        "playtest": match.playtest,
-        "trace": trace,
-        "seat": seats.get(trace.seat_position),
-        "options": options,
-        "state": filtered_state(trace.state or {}),
-        "state_json": json.dumps(trace.state, indent=2, ensure_ascii=False),
-        "previous_id": siblings[position - 1] if position else None,
-        "next_id": siblings[position + 1] if position is not None and position + 1 < len(siblings) else None,
-        **filters,
-    })
 
 
 def _abort(match) -> None:

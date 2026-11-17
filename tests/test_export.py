@@ -5,45 +5,54 @@ import json
 import pytest
 from django.core.management import CommandError, call_command
 
-from playtest import export
+from playtest import export, runner
+from playtest.models import Match, Seat
 
-from .test_traces import _played, jev, user  # noqa: F401 - fixtures
+from .factories import make_constructed_deck, make_playtest
 
 pytestmark = pytest.mark.django_db
 
 
-def test_jsonl_is_every_event_in_order_with_its_trace(user, fake_forge, jev):
+@pytest.fixture
+def user(django_user_model):
+    return django_user_model.objects.create_user(username="u")
+
+
+def _played(user, seed=5):
+    match = Match.objects.create(owner=user, playtest=make_playtest(user, fmt="modern", seed=seed), format="modern", seed=seed)
+    for position in (0, 1):
+        deck = make_constructed_deck(user, name=f"Deck {position}")
+        Seat.objects.create(match=match, position=position, deck=deck, deck_name=deck.name)
+    runner.run_match(match.id)
+    match.refresh_from_db()
+    return match
+
+
+def test_jsonl_is_every_event_in_order(user, fake_forge):
     match = _played(user)
     lines = [json.loads(line) for line in export.match_jsonl(match).splitlines()]
     assert [line["seq"] for line in lines] == list(match.events.values_list("seq", flat=True))
-    decisions = [line for line in lines if line["kind"] == "decision"]
-    assert decisions and all(line["trace"]["options"] and line["trace"]["state"] for line in decisions)
-    assert all("trace" not in line for line in lines if line["kind"] == "log")
+    assert {line["kind"] for line in lines} == {"log", "game_over"}
 
 
-def test_jsonl_for_one_seat_and_only_flagged(user, fake_forge, jev):
-    fake_forge.failing_cast = True
+def test_jsonl_for_one_seat_keeps_its_events_and_the_table_wide_ones(user, fake_forge):
     match = _played(user)
+    match.events.filter(seq=0).update(seat_position=0)
     seat = [json.loads(line) for line in export.match_jsonl(match, seat=1).splitlines()]
     assert seat and all(line["seat"] in (1, None) for line in seat)
-    flagged = [json.loads(line) for line in export.match_jsonl(match, flagged=True).splitlines()]
-    assert flagged and all(line["trace"]["flags"] for line in flagged)
+    assert 0 not in [line["seq"] for line in seat]
 
 
-def test_markdown_narrates_each_turn_and_decision(user, fake_forge, jev):
+def test_markdown_narrates_each_turn(user, fake_forge):
     match = _played(user)
     text = export.match_markdown(match)
     assert text.startswith("# Deck 0 vs Deck 1")
-    assert "## Turn 1" in text and "Keep this hand" in text and "→" in text
+    assert "## Before the game" in text and "## Turn 1" in text
+    # Forge's quiet categories stay out of the narration.
+    assert "Add {R}" not in text
 
 
-def test_a_match_without_traces_still_exports(user, fake_forge, jev, monkeypatch):
-    monkeypatch.setenv("MAX_AGENT_CALLS", "0")
-    match = _played(user)
-    assert export.match_jsonl(match) and "## Turn 1" in export.match_markdown(match)
-
-
-def test_the_commands_write_files(user, fake_forge, jev, tmp_path, capsys):
+def test_the_commands_write_files(user, fake_forge, tmp_path, capsys):
     match = _played(user)
     call_command("export_match", str(match.id), "--format", "md")
     assert "## Turn 1" in capsys.readouterr().out

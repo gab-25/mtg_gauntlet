@@ -15,16 +15,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # The rules engine: Forge behind an HTTP decision protocol
+  # The rules engine: Forge, whose own AI plays every seat, behind an HTTP API
   # (https://github.com/gab-25/mtg_forge_engine), pulled from its GitHub
   # registry image. The card database loads in about a minute before /health
   # answers. No authentication: keep it off the internet.
   forge:
     image: ghcr.io/gab-25/mtg_forge_engine:latest
     environment:
-      # Decisions left unanswered this long go to Forge's AI; keep it above a
-      # Jev request with its retries.
-      DECISION_TIMEOUT: ${DECISION_TIMEOUT:-120}
       # The turn cap: past it the game is a draw.
       MAX_TURNS: ${MAX_TURNS:-50}
       MAX_CONCURRENT_GAMES: ${MAX_CONCURRENT_GAMES:-16}
@@ -56,8 +53,6 @@ services:
       DATABASE_URL: postgresql://mtg:mtg@db:5432/mtg_tester
       FORGE_URL: http://forge:8080
       CELERY_BROKER_URL: redis://redis:6379/0
-      # Provide your OpenRouter key to enable Jev seats:
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     ports:
       - "8000:8000"
     # The worker starts once this answers: migrations are applied by then.
@@ -68,9 +63,9 @@ services:
       retries: 10
       start_period: 20s
 
-  # Plays the matches: follows each game and answers its decisions with Jev.
-  # Keep ONE replica: its FORGE_WORKERS threads are the global bound on the
-  # Jev calls in flight. --concurrency is how many matches it follows at once.
+  # Plays the matches: follows each game on the bridge and stores its log.
+  # Keep ONE replica: it drops a duplicate delivery of a match it already
+  # follows. --concurrency is how many matches it follows at once.
   worker:
     build: .
     command: ["celery", "-A", "mtg_gauntlet", "worker", "--pool", "threads",
@@ -88,11 +83,6 @@ services:
       DATABASE_URL: postgresql://mtg:mtg@db:5432/mtg_tester
       FORGE_URL: http://forge:8080
       CELERY_BROKER_URL: redis://redis:6379/0
-      # Threads answering Forge's decisions: the most Jev calls in flight.
-      FORGE_WORKERS: ${FORGE_WORKERS:-4}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      MAX_AGENT_CALLS: ${MAX_AGENT_CALLS:-400}
-      MAX_MATCH_SECONDS: ${MAX_MATCH_SECONDS:-1800}
 
 volumes:
   pgdata:

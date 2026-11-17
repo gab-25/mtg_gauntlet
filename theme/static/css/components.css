@@ -395,12 +395,7 @@ a.list-row:hover { background: var(--line-soft); color: var(--text); }
 .log-turn { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); padding-top: 2px; }
 .log-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .log-text { overflow-wrap: anywhere; }
-.log-note { font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; }
-.log-reason { font-size: 12px; color: var(--text-2); }
 .log-headline .log-text { font-weight: 600; }
-.log-fallback .log-text { color: var(--gold); }
-.log-forge .log-text { color: var(--text-2); }
-.log-decision .log-text { color: var(--text); }
 
 /* 12. Cards and seats ----------------------------------------------------- */
 
@@ -580,22 +575,4 @@ button.card-row:hover { background: var(--line-soft); }
 
 @media print {
   .snackbar { display: none; }
-}
-
-/* Decision inspector: the match page's log links and playtest/decision_detail.html. */
-.log-link { color: var(--text-3); text-decoration: none; }
-.log-link:hover { color: var(--text); }
-.option-list { list-style: none; margin: 0; padding: 0; }
-.option-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
-.option-row:last-child { border-bottom: none; }
-.option-row.is-chosen { background: var(--accent-wash); }
-.option-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; }
-.option-text .cell-sub { flex-basis: 100%; font-size: 12px; color: var(--text-3); }
-.option-label { overflow-wrap: anywhere; }
-.state-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
-.state-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.state-side .cell-sub { display: block; font-size: 12px; color: var(--text-3); }
-.state-raw { max-height: 360px; overflow: auto; font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 640px) {
-  .option-row { flex-direction: column; align-items: stretch; }
 }

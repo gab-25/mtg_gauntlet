@@ -1,21 +1,19 @@
-"""The Celery side of a playtest: the match task and the worker's lifecycle.
+"""The Celery side of a playtest: the match task and the worker's recovery.
 
 :func:`run_match_task` follows one match's game (:func:`.runner.run_match`).
-The worker also runs the decision pool (:mod:`.workers`): it starts once, when
-the worker is ready, which then re-queues every match the database still calls
+When the worker is ready it re-queues every match the database still calls
 pending or running — a restart never leaves one behind, even if the broker lost
-its queue. There is a single worker process (``--pool threads``), so the pool
-size bounds the Jev calls in flight and :data:`_following` is enough to drop a
-duplicate delivery.
+its queue. There is a single worker process (``--pool threads``), so
+:data:`_following` is enough to drop a duplicate delivery.
 """
 
 import logging
 import threading
 
 from celery import shared_task
-from celery.signals import worker_ready, worker_shutdown
+from celery.signals import worker_ready
 
-from . import runner, workers
+from . import runner
 from .models import Match
 
 logger = logging.getLogger(__name__)
@@ -59,10 +57,4 @@ def recover() -> int:
 
 @worker_ready.connect
 def on_worker_ready(**kwargs) -> None:
-    workers.ensure_started()
     recover()
-
-
-@worker_shutdown.connect
-def on_worker_shutdown(**kwargs) -> None:
-    workers.stop()

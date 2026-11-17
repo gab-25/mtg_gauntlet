@@ -22,14 +22,6 @@ def result_label(result) -> str:
 
 
 @register.filter
-def flag_label(check) -> str:
-    """How a decision check (playtest.checks) reads on the page."""
-    from playtest.checks import FLAG_LABELS
-
-    return FLAG_LABELS.get(check, str(check).replace("_", " "))
-
-
-@register.filter
 def dash(value):
     """``—`` for a missing number, so an empty record never prints ``None``."""
     return "—" if value is None or value == "" else value

@@ -45,8 +45,8 @@ docker compose exec web python manage.py createsuperuser
 - `db`: `postgres:16-alpine`, data in the `pgdata` volume, published on 5432.
 - `engine`: the bridge, the `ghcr.io/gab-25/mtg_forge_engine:latest` image
   (`docker compose pull forge` to update it), published on
-  `127.0.0.1:8080` only (it has no authentication). `DECISION_TIMEOUT`, `MAX_TURNS`
-  and `MAX_CONCURRENT_GAMES` pass through from your shell.
+  `127.0.0.1:8080` only (it has no authentication). `MAX_TURNS` and
+  `MAX_CONCURRENT_GAMES` pass through from your shell.
 - `web`: the `Dockerfile` image — `uv sync --frozen --no-dev`, `collectstatic` at
   build time, `DEBUG=0`, gunicorn on port 8000 as an unprivileged user.
   `docker-entrypoint.sh` runs `migrate` before starting the server. It waits for
@@ -54,11 +54,10 @@ docker compose exec web python manage.py createsuperuser
 - `redis`: `redis:7-alpine`, the Celery broker, published on `127.0.0.1:6379`, no
   volume (the worker rebuilds the queue from the database when it starts).
 - `worker`: the same image running `celery -A mtg_gauntlet worker --pool threads`;
-  it plays the matches. Keep one replica (its `FORGE_WORKERS` threads bound the Jev
-  calls in flight). It starts once `web` answers its health check, so migrations are
-  applied by then.
-- `FORGE_WORKERS`, `CELERY_CONCURRENCY` and `OPENROUTER_API_KEY` are passed through
-  from your shell.
+  it follows the matches. Keep one replica (it drops a duplicate delivery of a match
+  it already follows). It starts once `web` answers its health check, so migrations
+  are applied by then.
+- `CELERY_CONCURRENCY` is passed through from your shell.
 
 CI (`.github/workflows/ci.yml`) runs on pushes to `main` only: `uv sync --frozen`,
 `uv run pytest`, then builds and pushes a multi-arch image to
@@ -69,7 +68,7 @@ by CI — run the suite locally before opening one.
 
 ```bash
 uv run pytest                     # whole suite, a few seconds
-uv run pytest tests/test_runner.py -k jev
+uv run pytest tests/test_runner.py -k seed
 FORGE_URL=http://localhost:8080 uv run pytest -m forge   # opt-in: against a real bridge
 ```
 
@@ -78,28 +77,24 @@ The suite is **hermetic**:
 - `pytest.ini_options` selects `mtg_gauntlet.settings_test`: in-memory SQLite,
   independent of `.env` and `DATABASE_URL`.
 - `RUN_JOBS_IN_BACKGROUND = False`: imports and matches run inline, so a test can
-  POST a form and assert on the finished row. No worker pool starts: each match's
-  runner answers its own decisions.
-- **No network.** Tests never reach Scryfall, OpenRouter or the Forge bridge. They
-  monkeypatch `decks.importer.fetch_card_data` / `decks.scryfall.fetch_card_raw`,
-  `requests.get` / `requests.post` on the module under test or
-  `typesafe.system_one`, or pass a fake `ask`. `tests/conftest.py` makes any
+  POST a form and assert on the finished row.
+- **No network.** Tests never reach Scryfall or the Forge bridge. They monkeypatch
+  `decks.importer.fetch_card_data` / `decks.scryfall.fetch_card_raw`, or
+  `requests.get` / `requests.post` on the module under test. `tests/conftest.py` makes any
   request that reaches the transport fail the test; only tests marked `forge` are
   let through, and they skip without `FORGE_URL`.
 - **The fake bridge.** The `fake_forge` fixture routes every `playtest.forge.client()`
   call to one `tests/fakeforge.py::FakeForge`: scripted two-seat games (mulligans,
-  lands, Shocks, an attacker and a blocker a turn) whose events, decisions and log
-  lines have the real bridge's shape, decided by a seeded RNG so a seed replays.
-  Set `unknown` / `unsupported` on it to refuse or flag cards. `sample_decision()`
-  builds one decision for agent tests; `tests/fixtures/forge_game.json` is a game
-  the real bridge played, for the summary.
+  lands, Shocks, an attacker and a blocker a turn) played by "Forge's AI" — a seeded
+  RNG, so a seed replays — whose events and log lines have the real bridge's shape.
+  A game moves one turn each time its events are read, so a test can stop it
+  halfway. Set `unknown` / `unsupported` on it to refuse or flag cards.
+  `tests/fixtures/forge_game.json` is a game the real bridge played, for the summary.
 - Shared fixtures are plain functions:
   - `tests/factories.py`: processed Scryfall cards (`scryfall_card`,
     `stored_cards`, `constructed_cards`), `make_deck(owner, …)` /
     `make_constructed_deck(…)`, `legal_decklist()` and `legal_constructed_decklist()`;
-  - `tests/cards.py`: the HTTP `Response` stub;
-  - `StubJev` in `tests/test_jev_agent.py`: answers like Jev with a given
-    confidence, or fails.
+  - `tests/cards.py`: the HTTP `Response` stub.
 - `Deck.status` defaults to `ready`, so decks created directly in tests need no
   import.
 
@@ -108,13 +103,13 @@ The suite is **hermetic**:
 | `test_decklist.py`, `test_cards.py`, `test_commander.py`, `test_constructed.py`, `test_formats.py` | Parsing, card classification, legality, the format registry |
 | `test_scryfall.py`, `test_cache.py`, `test_load_oracle_cards.py` | Fetching, cache backends, bulk load |
 | `test_forge.py` | The bridge client, decklist text and format names |
-| `test_agents.py`, `test_jev_agent.py`, `test_typesafe.py` | Agents on bridge decisions, the Jev and OpenRouter clients |
-| `test_runner.py`, `test_summary.py` | Whole matches on the fake bridge, fallbacks, budgets, the worker pool; the summary |
+| `test_runner.py`, `test_tasks.py`, `test_summary.py` | Whole matches on the fake bridge, failures and stops, the Celery task and recovery; the summary |
+| `test_export.py` | A match's log as JSON lines or Markdown, and the export commands |
 | `test_metagame.py`, `test_metagame_sources.py` | Metagame decks, their sync and sources |
 | `test_forge_bridge.py` | Opt-in (`-m forge`): a match on a real bridge, replayed from its seed |
 | `test_decks_web.py`, `test_matches_web.py`, `test_home.py` | Views end to end through the Django test client |
 | `test_stats.py`, `test_sidebar.py` | Records per deck and per opponent, what needs attention; the sidebar and its sections |
-| `test_migrations.py` | The `0002_card_image_urls` and heuristic → `forge_ai` data migrations; the deck's stored Forge check and the required playtest |
+| `test_migrations.py` | The migrations are in step with the models |
 | `test_assets.py` | Template classes and icons vs. the vendored assets (below) |
 
 ## Templates, styles and icons
@@ -162,13 +157,12 @@ Things that produce a migration without looking like a schema change:
 
 - adding a format to `decks/formats.py` (`Deck.format` and `Match.format` choices —
   see [Deck import](deck-import.md#adding-a-format));
-- adding a `Seat.Agent`, a `Deck.Status` or a `Match.Status` value. (Forge's end
+- adding a `Deck.Status` or a `Match.Status` value. (Forge's end
   reasons are stored verbatim; `END_REASONS` in `playtest/models.py` only names
   them.)
 
 Changing the shape of the stored card data (`Deck.cards[*]["data"]`) needs a data
-migration for decks already imported, like `decks/migrations/0002_card_image_urls.py`,
-with a test in `tests/test_migrations.py`.
+migration for decks already imported, with a test in `tests/test_migrations.py`.
 
 ## Logging
 

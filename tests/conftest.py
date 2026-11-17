@@ -9,7 +9,7 @@ def no_network(request, monkeypatch):
     """The suite is hermetic: a request that reaches the transport fails the test.
 
     Tests stub ``requests.get`` / ``requests.post`` themselves; anything that
-    slips past a stub lands here instead of on Scryfall, OpenRouter or the
+    slips past a stub lands here instead of on Scryfall or the
     Forge bridge. Only the opt-in tests marked ``forge`` reach a real bridge.
     """
     if request.node.get_closest_marker("forge"):
@@ -35,12 +35,10 @@ def no_broker(monkeypatch):
 @pytest.fixture
 def fake_forge(monkeypatch):
     """Every bridge call goes to one in-memory :class:`~tests.fakeforge.FakeForge`."""
-    from playtest import forge, runner
+    from playtest import forge
 
     from .fakeforge import FakeForge
 
     fake = FakeForge()
     monkeypatch.setattr(forge, "client", lambda: fake)
-    # A fake game moves only when answered: no need to wait for more.
-    monkeypatch.setattr(runner, "SELF_SERVE_WAIT", 0.01)
     return fake
