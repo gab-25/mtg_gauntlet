@@ -1,8 +1,0 @@
-{% comment %}
-The sidebar's Jev row: the OpenRouter key's state. With a key the page renders
-it without a status, and it loads its own at once (/engine/jev); the loaded row
-polls every 5 minutes. Without a key there is nothing to ask until a restart.
-{% endcomment %}
-<div class="engine-row"{% if status != "no API key" %} hx-get="{% url 'jev_status' %}" hx-trigger="{% if status %}every 300s{% else %}load{% endif %}" hx-swap="outerHTML"{% endif %}>
-    <span class="dot {{ dot|default:'muted' }}" aria-hidden="true"></span>Jev players<span class="engine-value {{ dot|default:'muted' }}">{{ status|default:"checking" }}</span>
-</div>

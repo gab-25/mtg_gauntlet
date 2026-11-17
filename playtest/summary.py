@@ -3,14 +3,10 @@
 :func:`summarize_match` is pure and deterministic — the same events give the
 same dict, every run. It reads Forge's game log (``Turn 3 (Red)``, ``Red cast
 Lightning Bolt …``, ``Life: Green 20 > 17``, ``Red played Mountain (31)``) by
-the names the seats played under, and the bridge's decision events, so it can
-say how much of a seat's game its agent actually played: every decision the
-bridge does not expose (mana payment, damage assignment, scry…) and every
-fallback is Forge's AI.
+the names the seats played under.
 """
 
 import re
-import statistics
 
 from decks.formats import FORMATS
 
@@ -69,32 +65,6 @@ def current_lives(events, seats: list) -> dict[int, int]:
     return lives
 
 
-def fallback_executions(rows) -> set[int]:
-    """The indexes of the ``forge_ai`` events that carry out a fallback.
-
-    When a decision falls back, Forge's AI takes it and the bridge logs that
-    too: the seat's next event after a ``fallback`` is its ``forge_ai``
-    twin. It is the same decision, so it is counted (and shown) once.
-    """
-    paired, waiting = set(), {}
-    for index, (_, kind, seat, _, _) in enumerate(rows):
-        if kind == "fallback":
-            waiting[seat] = True
-        elif kind == "forge_ai" and waiting.pop(seat, False):
-            paired.add(index)
-        elif kind == "decision":
-            waiting.pop(seat, None)
-    return paired
-
-
-def fallback_reason(payload: dict) -> str:
-    """Why Forge's AI took a decision: the agent's reason when it delegated, else the bridge's."""
-    reason = payload.get("reason") or "delegate"
-    if reason == "delegate":
-        return payload.get("fallback_kind") or "delegate"
-    return reason
-
-
 def summarize_match(events, seats: list, fmt: str, game: dict) -> dict:
     """The JSON-safe summary of a game.
 
@@ -113,7 +83,6 @@ def summarize_match(events, seats: list, fmt: str, game: dict) -> dict:
         seat.position: {
             "seat": seat.position,
             "name": name,
-            "agent": seat.agent,
             "result": "draw" if winner is None else ("won" if winner == seat.position else "lost"),
             "final_life": starting,
             "life_by_turn": [],
@@ -121,92 +90,45 @@ def summarize_match(events, seats: list, fmt: str, game: dict) -> dict:
             "spells_cast": 0,
             "lands_played": 0,
             "unsupported_cards": len((seat.coverage or {}).get("unsupported_cards") or []),
-            "decisions": {"agent": 0, "forge_ai": 0, "agent_share": None},
-            "confidence": {"rated": 0, "median": None, "low": 0},
-            "fallbacks": {},
-            # Plays Forge did not carry out: the same decision came back without them.
-            "failed_plays": 0,
         }
         for seat, name in zip(seats, names)
     }
     life = {position: starting for position in stats}
-    confidences: dict[int, list[float]] = {position: [] for position in stats}
-    automatic: dict[str, int] = {}
     current_turn = 0
-    executions = fallback_executions(rows)
-    # A bridge that reports failed plays (play_failed) is counted on its word;
-    # with an older one, the worker's failed_play mark on the next decision.
-    reported = any(kind == "play_failed" for _, kind, *_ in rows)
 
     def close_turns(upto: int) -> None:
         for seat in stats.values():
             while len(seat["life_by_turn"]) < upto:
                 seat["life_by_turn"].append(life[seat["seat"]])
 
-    for index, (turn, kind, seat, text, payload) in enumerate(rows):
-        if index in executions:
+    for turn, kind, _, text, payload in rows:
+        if kind != "log":
             continue
-        # Turns advance on Forge's log lines only: the bridge reads its log
-        # lazily, so a decision may carry the next turn before the last lines
-        # of this one arrive.
-        if kind == "log" and turn > current_turn:
+        if turn > current_turn:
             close_turns(turn - 1)
             current_turn = turn
-        if kind == "log":
-            category = payload.get("type")
-            if category == "LIFE":
-                change = life_change(text, by_length)
-                if change:
-                    life[change[0]] = change[1]
-            elif category == "TURN":
-                line = TURN_LINE.match(text)
-                active = next((s for n, s in by_length if line and n == line.group(2)), None)
-                if active is not None:
-                    stats[active]["turns_taken"] += 1
-            elif category == "STACK_ADD":
-                found = _by_prefix(text, by_length)
-                if found and found[1].startswith("cast "):
-                    stats[found[0]]["spells_cast"] += 1
-            elif category == "LAND":
-                found = _by_prefix(text, by_length)
-                if found and found[1].startswith("played "):
-                    stats[found[0]]["lands_played"] += 1
-        elif seat not in stats:
-            continue
-        elif kind == "decision":
-            stats[seat]["decisions"]["agent"] += 1
-            stats[seat]["failed_plays"] += not reported and bool(payload.get("failed_play"))
-            if payload.get("confidence") is not None:
-                confidences[seat].append(payload["confidence"])
-        elif kind == "fallback":
-            stats[seat]["decisions"]["forge_ai"] += 1
-            stats[seat]["failed_plays"] += not reported and bool(payload.get("failed_play"))
-            reason = fallback_reason(payload)
-            stats[seat]["fallbacks"][reason] = stats[seat]["fallbacks"].get(reason, 0) + 1
-            if reason == "low_confidence":
-                stats[seat]["confidence"]["low"] += 1
-            if payload.get("confidence") is not None:
-                confidences[seat].append(payload["confidence"])
-        elif kind == "play_failed":
-            stats[seat]["failed_plays"] += 1
-        elif kind == "forge_ai":
-            stats[seat]["decisions"]["forge_ai"] += 1
-            method = payload.get("method") or "other"
-            automatic[method] = automatic.get(method, 0) + 1
+        category = payload.get("type")
+        if category == "LIFE":
+            change = life_change(text, by_length)
+            if change:
+                life[change[0]] = change[1]
+        elif category == "TURN":
+            line = TURN_LINE.match(text)
+            active = next((s for n, s in by_length if line and n == line.group(2)), None)
+            if active is not None:
+                stats[active]["turns_taken"] += 1
+        elif category == "STACK_ADD":
+            found = _by_prefix(text, by_length)
+            if found and found[1].startswith("cast "):
+                stats[found[0]]["spells_cast"] += 1
+        elif category == "LAND":
+            found = _by_prefix(text, by_length)
+            if found and found[1].startswith("played "):
+                stats[found[0]]["lands_played"] += 1
     close_turns(turns)
 
     for seat in stats.values():
-        position = seat["seat"]
-        seat["final_life"] = life[position]
-        decisions = seat["decisions"]
-        total = decisions["agent"] + decisions["forge_ai"]
-        if total:
-            decisions["agent_share"] = round(100 * decisions["agent"] / total)
-        rated = confidences[position]
-        seat["confidence"]["rated"] = len(rated)
-        if rated:
-            seat["confidence"]["median"] = round(statistics.median(rated), 3)
-        seat["fallbacks"] = dict(sorted(seat["fallbacks"].items()))
+        seat["final_life"] = life[seat["seat"]]
 
     return {
         "winner_seat": winner,
@@ -214,6 +136,4 @@ def summarize_match(events, seats: list, fmt: str, game: dict) -> dict:
         "turns": turns,
         "starting_life": starting,
         "seats": [stats[seat.position] for seat in seats],
-        # What Forge's AI decided because the bridge does not expose it, by Forge method.
-        "automatic": dict(sorted(automatic.items())),
     }

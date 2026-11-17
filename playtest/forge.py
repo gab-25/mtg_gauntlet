@@ -1,7 +1,7 @@
 """HTTP client for the Forge bridge (mtg_forge_engine), the rules engine.
 
-Forge plays the game: it knows the rules and the cards, and asks the seats'
-clients one decision at a time. This module only moves JSON. ``FORGE_URL``
+Forge plays the game: it knows the rules and the cards, and its own AI plays
+every seat. This module only moves JSON. ``FORGE_URL``
 points at the bridge; tests replace :func:`client` with a fake
 (``tests/fakeforge.py``), so the suite never needs the container.
 """
@@ -14,7 +14,6 @@ from decks.formats import FORMATS
 from decks.rules.legality import board_of
 
 DEFAULT_URL = "http://localhost:8080"
-# Long-polls hold a request open for ``wait`` seconds; the timeout leaves room.
 REQUEST_TIMEOUT = 15
 # Game statuses on the bridge after which nothing more happens.
 ENDED = ("finished", "failed", "aborted")
@@ -97,7 +96,7 @@ class ForgeClient:
         return self._json(response, "health")
 
     def create_game(self, fmt: str, seed: int, seats: list[dict]) -> dict:
-        """``seats``: ``[{"name", "decklist", "controller"}]``. Returns the bridge's game,
+        """``seats``: ``[{"name", "decklist"}]``. Returns the bridge's game,
         with each seat's ``unsupported_cards``. Unknown cards raise :class:`ForgeDeckError`."""
         response = self._call("POST", "/games", json={"format": bridge_format(fmt), "seed": seed, "seats": seats})
         if response.status_code == 422:
@@ -130,28 +129,6 @@ class ForgeClient:
         if response.status_code == 404:
             raise ForgeGameNotFound()
         return self._json(response, "events")
-
-    def lease(self, wait: float = 30, game_id: str | None = None) -> dict | None:
-        """The oldest pending decision (of ``game_id``, or of any game), or None after ``wait`` seconds."""
-        params = {"wait": wait}
-        if game_id:
-            params["game"] = game_id
-        response = self._call("GET", "/decisions", params=params, timeout=wait + REQUEST_TIMEOUT)
-        if response.status_code == 204:
-            return None
-        return self._json(response, "lease")
-
-    def answer(self, decision_id: str, choice: int | None = None, *, delegate: bool = False, meta: dict | None = None) -> bool:
-        """Answers a decision. False when the bridge no longer waits for it
-        (already answered, timed out, or its game ended)."""
-        body = {"delegate": True} if delegate else {"choice": choice}
-        body["meta"] = meta or {}
-        response = self._call("POST", f"/decisions/{decision_id}", json=body)
-        if response.status_code == 409:
-            return False
-        if not 200 <= response.status_code < 300:
-            raise ForgeError(f"answer: Forge bridge returned HTTP {response.status_code}: {response.text[:300]}")
-        return True
 
     def abort(self, game_id: str) -> None:
         response = self._call("DELETE", f"/games/{game_id}")

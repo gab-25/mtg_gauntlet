@@ -10,11 +10,9 @@ import os
 import pytest
 
 from playtest import forge, runner
-from playtest.agents import typesafe
 from playtest.models import Match, Seat
 
 from .factories import make_deck, make_playtest, scryfall_card
-from .test_jev_agent import StubJev
 
 pytestmark = [
     pytest.mark.forge,
@@ -37,7 +35,7 @@ def _deck(user, name, entries):
 def _match(user, seed):
     match = Match.objects.create(owner=user, playtest=make_playtest(user, fmt="modern", seed=seed), format="modern", seed=seed)
     for position, deck in enumerate((_deck(user, "Red", RED), _deck(user, "Green", GREEN))):
-        Seat.objects.create(match=match, position=position, deck=deck, deck_name=deck.name, agent=Seat.Agent.JEV)
+        Seat.objects.create(match=match, position=position, deck=deck, deck_name=deck.name)
     return match
 
 
@@ -48,9 +46,7 @@ def _play(user, seed):
     return match
 
 
-def test_a_jev_duel_plays_on_the_bridge_and_replays_from_its_seed(django_user_model, monkeypatch):
-    # A stub answers for Jev: the bridge is real, OpenRouter is not.
-    monkeypatch.setattr(typesafe, "system_one", StubJev(confidence=0.9))
+def test_a_forge_ai_duel_plays_on_the_bridge_and_replays_from_its_seed(django_user_model):
     user = django_user_model.objects.create_user(username="u")
     first = _play(user, 21)
     assert first.status == Match.Status.FINISHED, first.error
@@ -72,17 +68,3 @@ def test_a_card_forge_does_not_know_is_named(django_user_model):
         runner.start_game(match)
     assert error.value.unresolved == {"Red": ["Nope Card"]}
 
-
-def test_the_bridge_says_what_forge_ai_would_pick(django_user_model, monkeypatch):
-    """mtg_forge_engine#7: every decision carries forge_ai_choice; the traces keep it
-    and the summary compares it with Jev's picks (#75). The stub takes the first option
-    (keep, pass, done), so the game reaches priority decisions."""
-    monkeypatch.setattr(typesafe, "system_one", StubJev(prefer=lambda criteria: min(criteria, key=lambda k: int(k[1:])), confidence=0.9))
-    match = _play(django_user_model.objects.create_user(username="u"), 23)
-    assert match.status == Match.Status.FINISHED, match.error
-    traces = list(match.traces.all())
-    assert traces and all(t.forge_ai_choice is None or t.option(t.forge_ai_choice) for t in traces)
-    priority = [t for t in traces if t.kind == "priority"]
-    assert priority and all(t.forge_ai_choice is not None for t in priority)
-    rated = sum(seat.get("agreement", {}).get("rated", 0) for seat in match.summary["seats"])
-    assert rated == sum(t.choice is not None and t.forge_ai_choice is not None and t.outcome != "delegated" for t in traces)

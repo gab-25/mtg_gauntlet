@@ -112,7 +112,7 @@ def make_playtest(owner, deck=None, fmt="duel", deck_name="Deck 0", seed=1, **fi
 
 
 def make_match(owner, playtest=None, seats=("Deck 0", "Deck 1"), **fields):
-    """A match of ``playtest`` (a new one if None) with two Jev seats named ``seats``."""
+    """A match of ``playtest`` (a new one if None) with two seats named ``seats``."""
     from playtest.models import Match, Seat
 
     playtest = playtest or make_playtest(owner, fmt=fields.get("format", "duel"), deck_name=seats[0])
@@ -120,5 +120,5 @@ def make_match(owner, playtest=None, seats=("Deck 0", "Deck 1"), **fields):
     fields.setdefault("seed", playtest.seed)
     match = Match.objects.create(owner=owner, playtest=playtest, **fields)
     for position, name in enumerate(seats):
-        Seat.objects.create(match=match, position=position, deck_name=name, agent="jev")
+        Seat.objects.create(match=match, position=position, deck_name=name)
     return match

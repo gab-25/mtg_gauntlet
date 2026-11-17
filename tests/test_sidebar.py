@@ -12,9 +12,7 @@ from .factories import make_deck, make_match
 
 @pytest.mark.django_db
 def test_sidebar_counts_my_decks_playtests_and_running_matches(django_user_model, monkeypatch):
-    monkeypatch.setenv("FORGE_WORKERS", "4")
     monkeypatch.setenv("FORGE_URL", "http://forge:8080")
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     user = django_user_model.objects.create_user(username="u")
     make_deck(user)
     make_match(user, status=Match.Status.RUNNING)
@@ -22,8 +20,8 @@ def test_sidebar_counts_my_decks_playtests_and_running_matches(django_user_model
     request = RequestFactory().get("/")
     request.user = user
     data = sidebar(request)["sidebar"]
-    assert (data["deck_count"], data["playtest_count"], data["running"], data["workers"]) == (1, 1, 1, 4)
-    assert data["jev_ready"] is False and data["forge_url"] == "http://forge:8080"
+    assert (data["deck_count"], data["playtest_count"], data["running"]) == (1, 1, 1)
+    assert data["forge_url"] == "http://forge:8080"
 
 
 def test_sidebar_is_empty_for_anonymous_users():
@@ -82,19 +80,10 @@ def forge_status(client, django_user_model, monkeypatch):
 @pytest.mark.django_db
 def test_the_sidebar_loads_the_engine_status_apart(client, django_user_model, monkeypatch):
     monkeypatch.setenv("FORGE_URL", "http://forge:8080")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     client.force_login(django_user_model.objects.create_user(username="u"))
     page = client.get("/decks").content.decode()
-    assert 'hx-get="/engine/forge"' in page and 'hx-get="/engine/jev"' in page
-    assert page.count(">checking<") == 2 and 'title="http://forge:8080"' in page
-
-
-@pytest.mark.django_db
-def test_without_a_key_the_jev_row_asks_nothing(client, django_user_model, monkeypatch):
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    client.force_login(django_user_model.objects.create_user(username="u"))
-    page = client.get("/decks").content.decode()
-    assert ">no API key<" in page and 'hx-get="/engine/jev"' not in page
+    assert 'hx-get="/engine/forge"' in page and "/engine/jev" not in page and "Jev" not in page
+    assert page.count(">checking<") == 1 and 'title="http://forge:8080"' in page
 
 
 @pytest.mark.django_db
@@ -123,57 +112,14 @@ def test_the_forge_status_is_cached_a_few_seconds(forge_status):
     assert forge_status.calls == [2]
 
 
-@pytest.fixture
-def jev_status(client, django_user_model, monkeypatch):
-    """GET /engine/jev for a signed-in user, OpenRouter's key status answered by ``status``."""
-    from django.core.cache import cache
-
-    from playtest.agents import typesafe
-
-    cache.clear()
-    client.force_login(django_user_model.objects.create_user(username="u"))
-    calls = []
-
-    def get(status):
-        def key_status():
-            calls.append(status)
-            return status
-
-        monkeypatch.setattr(typesafe, "key_status", key_status)
-        return client.get("/engine/jev").content.decode()
-
-    get.calls = calls
-    return get
-
-
 @pytest.mark.django_db
-@pytest.mark.parametrize("status, dot", [
-    ("ready", "ok"), ("no credit", "warn"), ("invalid key", "danger"), ("unreachable", "danger"),
-    ("no API key", "danger"),
-])
-def test_the_jev_status_comes_from_openrouter(jev_status, status, dot):
-    row = jev_status(status)
-    assert f'class="dot {dot}"' in row and f">{status}<" in row
-    # Without a key there is nothing to ask OpenRouter until a restart.
-    assert ('hx-trigger="every 300s"' in row) == (status != "no API key")
-
-
-@pytest.mark.django_db
-def test_the_jev_status_is_cached(jev_status):
-    jev_status("ready")
-    assert ">ready<" in jev_status("invalid key")
-    assert jev_status.calls == ["ready"]
-
-
-@pytest.mark.django_db
-def test_the_workers_row_reloads_my_running_matches(client, django_user_model, monkeypatch):
-    monkeypatch.setenv("FORGE_WORKERS", "4")
+def test_the_matches_row_reloads_my_running_matches(client, django_user_model):
     user = django_user_model.objects.create_user(username="u")
     client.force_login(user)
     make_match(django_user_model.objects.create_user(username="other"), status=Match.Status.RUNNING)
     page = client.get("/decks").content.decode()
-    assert 'hx-get="/engine/workers"' in page and ">0/4 busy<" in page
+    assert 'hx-get="/engine/matches"' in page and ">0 running<" in page
     make_match(user, status=Match.Status.RUNNING)
     make_match(user, status=Match.Status.FINISHED)
-    row = client.get("/engine/workers").content.decode()
-    assert ">1/4 busy<" in row and 'class="dot warn"' in row and 'hx-trigger="every 10s"' in row
+    row = client.get("/engine/matches").content.decode()
+    assert ">1 running<" in row and 'class="dot warn"' in row and 'hx-trigger="every 10s"' in row

@@ -15,20 +15,7 @@ def user(django_user_model):
 
 
 @pytest.fixture
-def jev(monkeypatch):
-    """Jev plays every seat: a key and a stand-in answer, no network."""
-    from playtest.agents import typesafe
-
-    from .test_jev_agent import StubJev
-
-    stub = StubJev(confidence=0.9)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(typesafe, "system_one", stub)
-    return stub
-
-
-@pytest.fixture
-def client(client, user, jev):
+def client(client, user):
     client.force_login(user)
     return client
 
@@ -72,7 +59,7 @@ def test_a_deck_is_tested_against_each_opponent(client, user, fake_forge):
     assert [m.seed for m in matches] == [7, 8]
     for match, opponent in zip(matches, opponents):
         assert match.status == Match.Status.FINISHED, match.error
-        assert [(s.position, s.deck_id, s.agent) for s in match.seats.all()] == [(0, tested.id, "jev"), (1, opponent.id, "jev")]
+        assert [(s.position, s.deck_id) for s in match.seats.all()] == [(0, tested.id), (1, opponent.id)]
     assert [g["seed"] for g in fake_forge.created] == [7, 8]
 
     page = client.get(f"/playtests/{playtest.id}").content.decode()
@@ -145,18 +132,6 @@ def test_someone_elses_deck_cannot_be_tested_or_played_against(client, user, dja
 
 
 @pytest.mark.django_db
-def test_a_jev_playtest_needs_an_api_key(client, user, monkeypatch):
-    monkeypatch.delenv("OPENROUTER_API_KEY")
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    response = client.post("/playtests/create", _form("duel", decks))
-    assert response.status_code == 422
-    assert b"OPENROUTER_API_KEY" in response.content
-    assert b"no Jev playtest can start" in client.get("/playtests/new").content
-    # The warning is Jev's: with Forge AI picked the form says nothing of the key.
-    assert b"OPENROUTER_API_KEY" not in client.get("/playtests/new?agent=forge_ai").content
-
-
-@pytest.mark.django_db
 def test_a_deck_forge_does_not_know_is_refused_naming_the_card(client, user, fake_forge):
     tested = make_deck(user, name="Deck 0", fmt="duel")
     good = make_deck(user, name="Deck 1", fmt="duel")
@@ -224,23 +199,24 @@ def test_deleting_a_running_match_aborts_its_game(client, user, fake_forge):
     assert fake_forge.games[game["id"]].status == "aborted"
 
 
-# -- coverage, confidence and the summary ---------------------------------------------
+# -- coverage, the log and the summary ---------------------------------------------
 
 
 @pytest.mark.django_db
-def test_the_form_offers_no_agent_choice(client):
+def test_the_form_offers_no_player_choice(client):
     content = client.get("/playtests/new").content.decode()
-    assert 'name="seat-0-agent"' not in content
-    assert "Jev on every seat" in content
+    assert 'name="agent"' not in content and "Who plays" not in content
+    assert "its own AI plays both seats" in content
 
 
 @pytest.mark.django_db
-def test_a_posted_agent_is_ignored_every_seat_is_jev(client, user, fake_forge):
+def test_a_posted_agent_is_ignored_forge_plays_every_seat(client, user, fake_forge):
     decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks, **{"seat-0-agent": "forge_ai", "seat-1-agent": "random"}))
+    response = client.post("/playtests/create", _form("duel", decks, agent="jev"))
+    assert response.status_code == 302, response.content
     match = Match.objects.get(owner=user)
-    assert list(match.seats.values_list("agent", flat=True)) == ["jev", "jev"]
-    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["external", "external"]
+    assert match.status == Match.Status.FINISHED, match.error
+    assert all(set(seat) == {"name", "decklist"} for seat in fake_forge.created[0]["seats"])
 
 
 def _finished(user, **seat_fields):
@@ -263,44 +239,20 @@ def test_seat_cards_show_forges_coverage(client, user):
 
 
 @pytest.mark.django_db
-def test_the_log_shows_confidence_fallback_reasons_and_folds_forge_ai_decisions(client, user):
+def test_the_log_shows_forges_narrative_without_the_quiet_categories(client, user):
     match, MatchEvent = _finished(user)
-    probabilities = [{"label": "Attack with Bear", "p": 0.82}, {"label": "Pass priority", "p": 0.11}]
     rows = [
-        ("decision", 0, "attack: Attack with Bear", {"kind": "attack", "choice": 1, "confidence": 0.82, "probabilities": probabilities, "model": "typesafe/jev-1.13"}),
-        ("fallback", 0, "block: decided by Forge AI (delegate)", {"kind": "block", "reason": "delegate", "fallback_kind": "low_confidence", "confidence": 0.11, "probabilities": probabilities}),
-        ("forge_ai", 0, "declareBlockers: decided by Forge AI", {"method": "declareBlockers"}),
-        ("fallback", 1, "priority: decided by Forge AI (timeout)", {"kind": "priority", "reason": "timeout"}),
-        ("forge_ai", 1, "chooseSpellAbilityToPlay: decided by Forge AI", {"method": "chooseSpellAbilityToPlay"}),
-        ("forge_ai", 0, "assignCombatDamage: decided by Forge AI", {"method": "assignCombatDamage"}),
-        ("forge_ai", 0, "payManaCost: decided by Forge AI", {"method": "payManaCost"}),
-        ("forge_ai", 0, "payManaCost: decided by Forge AI", {"method": "payManaCost"}),
-        ("log", None, "Red's Untap step", {"type": "PHASE"}),
+        ("log", "Turn 1 (Deck 0)", {"type": "TURN"}),
+        ("log", "Red's Untap step", {"type": "PHASE"}),
+        ("log", "Mountain (3) - {T}: Add {R}.", {"type": "MANA"}),
+        ("log", "Deck 0 cast Shock targeting [Deck 1]", {"type": "STACK_ADD"}),
+        ("game_over", "Game over: turn_limit, winner seat None", {}),
     ]
-    for seq, (kind, seat, text, payload) in enumerate(rows):
-        MatchEvent.objects.create(match=match, seq=seq, turn=1, seat_position=seat, kind=kind, text=text, payload=payload)
+    for seq, (kind, text, payload) in enumerate(rows):
+        MatchEvent.objects.create(match=match, seq=seq, turn=1, kind=kind, text=text, payload=payload)
     page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
-    assert "0.82" in page and "runner-up: Pass priority" in page
-    assert "low_confidence" in page and "Jev leaned to: Attack with Bear" in page
-    assert "timeout" in page
-    assert "assignCombatDamage, payManaCost (3×)" in page
-    # A fallback's own Forge-AI decision is not repeated.
-    assert "chooseSpellAbilityToPlay" not in page and "declareBlockers" not in page
-    assert "Untap step" not in page
-
-
-def test_the_log_names_a_play_forge_did_not_carry_out(client, user):
-    match, MatchEvent = _finished(user)
-    stifle = "Cast Stifle #180 for {U}: Counter target activated or triggered ability."
-    MatchEvent.objects.create(match=match, seq=0, turn=3, seat_position=0, kind="decision", text=f"priority: {stifle}",
-                              payload={"kind": "priority", "choice": 2})
-    MatchEvent.objects.create(match=match, seq=1, turn=3, seat_position=0, kind="decision", text="priority: Pass priority",
-                              payload={"kind": "priority", "choice": 0, "failed_play": stifle})
-    MatchEvent.objects.create(match=match, seq=2, turn=3, seat_position=0, kind="play_failed", text=f"{stifle}: not played (targets)",
-                              payload={"ability": stifle, "reason": "targets"})
-    page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
-    assert "failed play" in page and "Forge did not carry out Cast Stifle #180" in page
-    assert "Forge did not carry it out (targets)" in page
+    assert "Turn 1 (Deck 0)" in page and "cast Shock" in page and "Game over" in page
+    assert "Untap step" not in page and "Add {R}" not in page
 
 
 @pytest.mark.django_db
@@ -311,26 +263,19 @@ def test_a_finished_match_shows_its_summary(client, user, fake_forge):
     client.post("/playtests/create", _form("duel", decks))
     played = Match.objects.exclude(pk=match.pk).get()
     page = client.get(f"/playtests/{played.playtest_id}/matches/{played.id}").content.decode()
-    assert "Match summary" in page and "Spells cast" in page and "Fallbacks" in page and "Failed plays" in page
-    assert "Automatic for every seat: mana payment" in page and "assignCombatDamage" in page
-    assert "% Jev" in page
+    assert "Match summary" in page and "Spells cast" in page and "Lands played" in page and "Life by turn" in page
+    assert "Fallbacks" not in page and "confidence" not in page
 
 
 @pytest.mark.django_db
-def test_a_constructed_match_between_two_jev_agents(client, user, fake_forge, monkeypatch):
-    from playtest.agents import typesafe
-
+def test_a_constructed_match_plays_on_the_bridge(client, user, fake_forge):
     from .factories import make_constructed_deck
-    from .test_jev_agent import StubJev
 
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(typesafe, "system_one", StubJev())
     decks = [make_constructed_deck(user, name=f"Goblins {i}") for i in range(2)]
     client.post("/playtests/create", _form("modern", decks))
     match = Match.objects.get(owner=user)
     assert match.status == Match.Status.FINISHED, match.error
-    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["external", "external"]
-    assert set(match.events.filter(kind="decision").values_list("seat_position", flat=True)) == {0, 1}
+    assert fake_forge.created[0]["format"] == "modern"
 
 
 @pytest.mark.django_db
@@ -442,27 +387,6 @@ def test_someone_elses_deck_cannot_be_checked(client, django_user_model, fake_fo
 
 
 @pytest.mark.django_db
-def test_a_jev_match_on_the_fake_bridge_shows_confidence_and_fallbacks(client, user, fake_forge, monkeypatch):
-    from playtest.agents import typesafe
-
-    from .test_jev_agent import StubJev
-
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(typesafe, "system_one", StubJev(confidence=0.9))
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks))
-    match = Match.objects.get(owner=user)
-    page = client.get(f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log").content.decode()
-    assert "0.90" in page and "runner-up:" in page
-
-    monkeypatch.setattr(typesafe, "system_one", StubJev(fail="HTTP 503"))
-    client.post("/playtests/create", _form("duel", decks))
-    down = Match.objects.exclude(pk=match.pk).get()
-    page = client.get(f"/playtests/{down.playtest_id}/matches/{down.id}?tab=log").content.decode()
-    assert "decided by Forge AI (delegate)" in page and "error" in page and "HTTP 503" in page
-
-
-@pytest.mark.django_db
 def test_stopping_a_match_nobody_follows_any_more_ends_it(client, user, fake_forge):
     game = fake_forge.create_game("duel", 1, [{"name": "A", "decklist": "1 Forest"}, {"name": "B", "decklist": "1 Forest"}])
     match = make_match(user, status=Match.Status.RUNNING, forge_game_id=game["id"])
@@ -479,16 +403,6 @@ def test_an_unreadable_bridge_answer_leaves_no_match(client, user, monkeypatch):
     decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
     response = client.post("/playtests/create", _form("duel", decks))
     assert response.status_code == 503 and not Match.objects.exists()
-
-
-@pytest.mark.django_db
-def test_the_jev_model_cannot_be_set_from_the_form(client, user, fake_forge, jev):
-    assert 'name="seat-0-model"' not in client.get("/playtests/new").content.decode()
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks, **{"seat-0-model": "openai/gpt-5"}))
-    match = Match.objects.get(owner=user)
-    assert list(match.seats.values_list("model", flat=True)) == ["", ""]
-    assert {model for _, _, model in jev.requests} == {"~typesafe/jev-latest"}
 
 
 def _running_session(user, fake_forge):
@@ -639,7 +553,7 @@ def test_the_playtest_page_shows_score_rows_and_run_again(client, user):
     page = client.get(f"/playtests/{playtest.id}").content.decode()
     assert "vs</span> the field" in page and "seed 4417" in page and "1–0–0" in page and "100%" in page
     assert "1 of 1 game done" in page and "Your deck" in page and "14 – 0" in page
-    assert f"/playtests/new?deck={tested.id}&amp;games=1&amp;agent=jev&amp;opponents={rival.id}" in page
+    assert f"/playtests/new?deck={tested.id}&amp;games=1&amp;opponents={rival.id}" in page
     assert f'href="/decks/{tested.id}"' in page.split('aria-label="Breadcrumb"', 1)[1]
     assert 'class="segment won"' in page
 
@@ -665,17 +579,14 @@ def test_the_match_page_has_summary_and_log_tabs_and_a_next_match(client, user):
 
 
 @pytest.mark.django_db
-def test_the_log_filters_key_moments_and_fallbacks(client, user):
+def test_the_log_filters_key_moments(client, user):
     match, MatchEvent = _finished(user)
     MatchEvent.objects.create(match=match, seq=0, turn=1, kind="log", text="Turn 1 (Deck 0)", payload={"type": "TURN"})
-    MatchEvent.objects.create(match=match, seq=1, turn=1, seat_position=0, kind="decision", text="attack: X", payload={"confidence": 0.9})
-    MatchEvent.objects.create(match=match, seq=2, turn=1, seat_position=0, kind="fallback", text="block: decided by Forge AI (timeout)", payload={"reason": "timeout"})
+    MatchEvent.objects.create(match=match, seq=1, turn=1, kind="log", text="Deck 0 played Mountain (3)", payload={"type": "LAND"})
     base = f"/playtests/{match.playtest_id}/matches/{match.id}?tab=log"
-    fallbacks = client.get(base + "&show=fallbacks").content.decode()
-    assert "decided by Forge AI (timeout)" in fallbacks and "attack: X" not in fallbacks
     key = client.get(base + "&show=key").content.decode()
-    assert "Turn 1 (Deck 0)" in key and "attack: X" not in key
-    assert "attack: X" in client.get(base + "&show=nope").content.decode()
+    assert "Turn 1 (Deck 0)" in key and "played Mountain" not in key
+    assert "played Mountain" in client.get(base + "&show=nope").content.decode()
 
 
 @pytest.mark.django_db
@@ -710,7 +621,7 @@ def test_picking_a_deck_keeps_the_chosen_opponents_of_its_format(client, user):
     meta = _metagame("modern", archetype="Amulet Titan", rank=1)
     other = _metagame("pauper", archetype="Faeries", rank=1)
     page = client.get("/playtests/new?format=modern").content.decode()
-    assert 'hx-include="this, #opponents input[name=opponents]:checked, #games, input[name=agent]:checked"' in page
+    assert 'hx-include="this, #opponents input[name=opponents]:checked, #games"' in page
     part = client.get("/playtests/new/opponents", {"deck": tested.id, "opponents": [f"metagame:{meta.id}", f"metagame:{other.id}"]}).content.decode()
     assert _checked(part) == [f"metagame:{meta.id}"]
 
@@ -915,56 +826,3 @@ def test_the_home_running_panel_lists_matchups_when_a_session_plays_several_game
     panel = page.split('id="running-now"', 1)[1].split("</section>", 1)[0]
     assert panel.count("Goblins") == 1
     assert "1–0–0" in panel and "1 of 3 games done" in panel
-
-
-@pytest.mark.django_db
-def test_the_playtest_page_and_the_match_summary_show_flagged_decisions(client, user):
-    playtest = make_playtest(user, fmt="modern")
-    match = make_match(user, playtest=playtest, status="finished", summary={
-        "turns": 3, "starting_life": 20,
-        "seats": [{"seat": 0, "flags": {"bad_attack": 2}}, {"seat": 1, "flags": {}}],
-    })
-    page = client.get(f"/playtests/{playtest.id}").content.decode()
-    assert "Flagged decisions" in page and "2 attack into a killer" in page
-    summary = client.get(f"/playtests/{playtest.id}/matches/{match.id}").content.decode()
-    assert "2 attack into a killer" in summary and "none" in summary
-
-
-@pytest.mark.django_db
-def test_a_playtest_can_let_forges_ai_play_every_seat(client, user, fake_forge, monkeypatch):
-    """Forge AI seats need no key: the bridge plays them itself and no worker is asked."""
-    monkeypatch.delenv("OPENROUTER_API_KEY")
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    response = client.post("/playtests/create", _form("duel", decks, agent="forge_ai"))
-    assert response.status_code == 302, response.content
-    playtest = Playtest.objects.get(owner=user)
-    assert playtest.agent == "forge_ai"
-    match = playtest.matches.get()
-    assert [seat.agent for seat in match.seats.order_by("position")] == ["forge_ai", "forge_ai"]
-    assert [s["controller"] for s in fake_forge.created[0]["seats"]] == ["forge_ai", "forge_ai"]
-    assert match.status == Match.Status.FINISHED, match.error
-    assert not match.events.filter(kind="decision").exists()
-    page = client.get(f"/playtests/{playtest.id}").content.decode()
-    assert "Forge AI on every seat" in page
-    assert f"agent=forge_ai" in page  # Run again keeps the choice
-
-
-@pytest.mark.django_db
-def test_jev_plays_unless_the_form_says_otherwise(client, user, fake_forge):
-    decks = [make_deck(user, name=f"Deck {i}", fmt="duel") for i in range(2)]
-    client.post("/playtests/create", _form("duel", decks))
-    playtest = Playtest.objects.get(owner=user)
-    assert playtest.agent == "jev"
-    assert [seat.agent for seat in playtest.matches.get().seats.all()] == ["jev", "jev"]
-    response = client.post("/playtests/create", _form("duel", decks, agent="chess_engine"))
-    assert response.status_code == 422 and b"Pick who plays" in response.content
-
-
-@pytest.mark.django_db
-def test_the_new_playtest_form_offers_the_player_and_keeps_the_choice(client, user):
-    make_deck(user, fmt="duel")
-    content = client.get("/playtests/new").content.decode()
-    assert 'name="agent" value="jev" checked' in content
-    assert 'name="agent" value="forge_ai"' in content
-    content = client.get("/playtests/new?agent=forge_ai").content.decode()
-    assert 'name="agent" value="forge_ai" checked' in content

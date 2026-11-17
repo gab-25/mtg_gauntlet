@@ -10,22 +10,19 @@ from django.views.decorators.http import require_http_methods
 from decks.formats import FORMATS
 from decks.models import Deck, MetagameDeck
 from decks.presentation import deck_pips
-from playtest import forge, workers
-from playtest.agents import typesafe
+from playtest import forge
 from playtest.models import Match, Playtest
 from playtest.stats import needs_attention, record
 from playtest.views import session_view
 
 RECENT = 5
-# The sidebar's engine rows load apart from the page, each asking its service
-# with a short timeout and caching the answer, so a service that is down never
-# slows the pages down. The OpenRouter key changes rarely: asked less often.
+# The sidebar's Forge row loads apart from the page, asking the bridge with a
+# short timeout and caching the answer, so a bridge that is down never slows
+# the pages down.
 FORGE_HEALTH_TIMEOUT = 2
 FORGE_STATUS_TTL = 10
-JEV_STATUS_TTL = 60
 # Each state -> the sidebar's dot and label colour.
 FORGE_STATES = {"online": "ok", "loading": "warn", "offline": "danger"}
-JEV_STATES = {"ready": "ok", "no credit": "warn", "invalid key": "danger", "unreachable": "danger", "no API key": "danger"}
 
 
 def _playtests(user):
@@ -113,15 +110,7 @@ def forge_status(request):
 
 @login_required
 @require_http_methods(["GET"])
-def jev_status(request):
-    """The sidebar's Jev row: the OpenRouter key's state, loaded apart and polled by HTMX."""
-    status = cache.get_or_set("jev_status", typesafe.key_status, JEV_STATUS_TTL)
-    return render(request, "partials/jev_status.html", {"status": status, "dot": JEV_STATES[status]})
-
-
-@login_required
-@require_http_methods(["GET"])
-def workers_status(request):
-    """The sidebar's Workers row: the user's running matches over the workers, polled by HTMX."""
+def matches_status(request):
+    """The sidebar's Matches row: the user's running matches, polled by HTMX."""
     running = Match.objects.filter(owner=request.user, status=Match.Status.RUNNING).count()
-    return render(request, "partials/workers_status.html", {"running": running, "workers": workers.worker_count()})
+    return render(request, "partials/matches_status.html", {"running": running})

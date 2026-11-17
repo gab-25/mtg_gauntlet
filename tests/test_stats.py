@@ -11,15 +11,12 @@ from playtest.models import Match
 from .factories import make_deck, make_match, make_playtest
 
 
-def _done(user, playtest, winner, turns=8, confidence=0.8, agent=50, forge_ai=5, opponent="Opp"):
+def _done(user, playtest, winner, turns=8, opponent="Opp"):
     match = make_match(user, playtest=playtest, seats=(playtest.deck_name, opponent),
                        status=Match.Status.FINISHED, turn=turns)
     if winner is not None:
         match.winner = match.seats.get(position=winner)
-    match.summary = {"turns": turns, "seats": [
-        {"seat": 0, "confidence": {"median": confidence}, "decisions": {"agent": agent, "forge_ai": forge_ai}},
-        {"seat": 1, "confidence": {"median": 0.5}, "decisions": {"agent": 1, "forge_ai": 1}},
-    ]}
+    match.summary = {"turns": turns, "seats": [{"seat": 0}, {"seat": 1}]}
     match.save()
     return match
 
@@ -32,28 +29,27 @@ def user(django_user_model):
 @pytest.mark.django_db
 def test_record_counts_finished_matches_from_seat_zero(user):
     playtest = make_playtest(user)
-    matches = [_done(user, playtest, 0, turns=8, confidence=0.9), _done(user, playtest, 1, turns=10, confidence=0.7),
-               _done(user, playtest, None, turns=12, confidence=None),
+    matches = [_done(user, playtest, 0, turns=8), _done(user, playtest, 1, turns=10),
+               _done(user, playtest, None, turns=12),
                make_match(user, playtest=playtest, status=Match.Status.RUNNING)]
     result = stats.record(matches)
     assert (result.won, result.lost, result.draw, result.played) == (1, 1, 1, 3)
     assert result.score == "1–1–1" and result.win_rate == 33
-    assert result.avg_turns == 10.0 and result.median_confidence == 0.8
-    assert result.jev_share == 91
+    assert result.avg_turns == 10.0
 
 
 @pytest.mark.django_db
 def test_record_of_nothing_finished_has_no_rates(user):
     result = stats.record([make_match(user, status=Match.Status.FAILED)])
     assert result.played == 0 and result.win_rate is None and result.avg_turns is None
-    assert result.median_confidence is None and result.jev_share is None and result.score == "0–0–0"
+    assert result.score == "0–0–0"
 
 
 @pytest.mark.django_db
 def test_a_match_without_a_summary_still_counts(user):
     match = make_match(user, status=Match.Status.FINISHED, turn=7)
     result = stats.record([match])
-    assert result.draw == 1 and result.avg_turns == 7.0 and result.median_confidence is None
+    assert result.draw == 1 and result.avg_turns == 7.0
 
 
 @pytest.mark.django_db
@@ -87,13 +83,3 @@ def test_needs_attention_lists_unchecked_unknown_importing_and_stale(user):
     assert "Slow is still importing" in titles and "Broken could not be imported" in titles
     assert "Modern metagame is 9 days old" in titles
     assert not any("Fine" in t or "Pioneer" in t for t in titles)
-
-
-@pytest.mark.django_db
-def test_flag_totals_add_up_seat_zero_of_finished_matches(django_user_model):
-    user = django_user_model.objects.create_user(username="f")
-    playtest = make_playtest(user)
-    for flags, status in (({"no_effect": 2}, "finished"), ({"no_effect": 1, "bad_attack": 1}, "finished"), ({"no_effect": 9}, "failed")):
-        make_match(user, playtest=playtest, status=status,
-                   summary={"seats": [{"seat": 0, "flags": flags}, {"seat": 1, "flags": {"no_effect": 5}}]})
-    assert stats.flag_totals(playtest.matches.all()) == {"bad_attack": 1, "no_effect": 3}

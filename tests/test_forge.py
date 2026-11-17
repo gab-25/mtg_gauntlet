@@ -70,7 +70,7 @@ def test_formats_map_to_the_bridges_names():
 def test_create_game_posts_the_seats_and_returns_the_game():
     game = {"id": "g1", "status": "running", "seats": [{"name": "A", "unsupported_cards": []}]}
     client, session = _client({("POST", "/games"): Response(201, game)})
-    seats = [{"name": "A", "decklist": "4 Lightning Bolt", "controller": "external"}]
+    seats = [{"name": "A", "decklist": "4 Lightning Bolt"}]
     assert client.create_game("modern", 7, seats) == game
     assert session.sent[0]["url"] == "http://bridge:8080/games"
     assert session.sent[0]["json"] == {"format": "modern", "seed": 7, "seats": seats}
@@ -83,21 +83,6 @@ def test_unknown_cards_raise_a_deck_error_naming_them():
         client.create_game("modern", 1, [])
     assert error.value.unresolved == {"A": ["Nope Card"]}
     assert "A: Nope Card" in str(error.value)
-
-
-def test_lease_long_polls_and_returns_none_when_nothing_waits():
-    client, session = _client({("GET", "/decisions"): Response(204)})
-    assert client.lease(30, "g1") is None
-    assert session.sent[0]["params"] == {"wait": 30, "game": "g1"}
-    assert session.sent[0]["timeout"] > 30
-
-
-def test_answer_sends_a_choice_or_a_delegation_and_tolerates_an_expired_decision():
-    client, session = _client({("POST", "/decisions/d1"): Response(204), ("POST", "/decisions/d2"): Response(409)})
-    assert client.answer("d1", 2, meta={"confidence": 0.5}) is True
-    assert session.sent[0]["json"] == {"choice": 2, "meta": {"confidence": 0.5}}
-    assert client.answer("d2", delegate=True) is False
-    assert session.sent[1]["json"] == {"delegate": True, "meta": {}}
 
 
 def test_every_failure_is_a_forge_error():

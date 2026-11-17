@@ -1,22 +1,18 @@
 # MTG Gauntlet
 
-A **Django** web app where **AI agents playtest competitive Magic: The Gathering decks**:
+A **Django** web app where **Forge's AI playtests competitive Magic: The Gathering decks**:
 Standard, Pioneer, Modern, Legacy, Vintage, Pauper and Duel Commander (Commander decks,
 cEDH included, import and check too). Import your decks from a plain-text list (cards
 resolved through the **Scryfall** API), seat them at a table — or pit them against the
-top decks of the format — and let the agents play the game out under the real rules.
+top decks of the format — and let Forge play the games out under the real rules.
 Pages are **HTMX** over a precompiled stylesheet, data lives in **Postgres**.
 
 The rules are **Forge**'s: [Forge](https://github.com/Card-Forge/forge), an open-source
 rules engine with nearly every card scripted, plays every game from its own container
-([`mtg_forge_engine`](https://github.com/gab-25/mtg_forge_engine), the *bridge*) and asks
-each seat one decision at a time. The seats are played by
-[Jev](https://docs.typesafe.ai/introduction), TypeSafe AI's System One model, which picks
-among Forge's options and says how sure it is, or by Forge's own AI when the playtest
-says so. The same player takes both seats: the deck under test always faces an opponent
-played the same way, and the user picks decks and that player, never a model. No model
-is ever the rules engine: Forge lists the legal options; Jev only picks one of them, or
-hands the decision back to Forge's AI.
+([`mtg_forge_engine`](https://github.com/gab-25/mtg_forge_engine), the *bridge*), and
+Forge's own AI plays every seat. The deck under test always faces an opponent played
+the same way; the user picks the decks, and the app follows each game, stores its log
+and sums it up.
 
 ## Features
 
@@ -38,18 +34,8 @@ hands the decision back to Forge's AI.
 
   A constructed deck lists its sideboard under a `Sideboard` header; the sideboard is
   imported and checked, but a match is a single game played with the main deck.
-- **One player on every seat**: Jev by default, or Forge's own AI (free, at the
-  engine's speed, no decision log) when the playtest picks it. The deck under test and
-  its opponents are always played the same way.
-- **Jev**: Jev picks each of Forge's options through OpenRouter, the way
-  [Argentum Engine](https://github.com/wingedsheep/argentum-engine) plays it — the whole
-  view, the deck list and the picks of the session as state, the options in Forge's
-  order, one standing instruction, no confidence gate — and its confidence and runner-up
-  options are logged. There is no model to choose: Jev is always
-  `~typesafe/jev-latest`. In a Jev playtest Forge's AI only takes fallbacks and
-  what the bridge does not expose. A seat that cannot reach Jev, or whose request would
-  not fit Jev's context, hands that decision to Forge's AI, with the reason logged, so a
-  match never stalls on a model.
+- **Forge's AI on every seat**: free and at the engine's speed, with no API key. The
+  deck under test and its opponents are always played the same way.
 - **Coverage**: Forge either knows a card or the match is refused, naming the card.
   Each seat lists the cards Forge knows but cannot play fully. The deck page checks a
   deck on demand (**Check with Forge**), never on page view, and keeps the answer:
@@ -72,18 +58,11 @@ hands the decision back to Forge's AI.
   checked with Forge, imports, a stale metagame); a deck's page adds its record
   against each opponent and its playtest history; the Metagame page has a tab per
   format with **Test my deck against these**.
-- **Live game log and summary**: each match's page shows the
-  table and Forge's log as it grows (HTMX polling), each Jev decision with its
-  confidence, each fallback with its reason, and at the end a deterministic summary per
-  seat: result, life over time, turns, spells cast, lands played, the agent's decisions
-  against Forge AI's, confidence and fallbacks by reason, and the decisions the
-  deterministic checks flagged. A running match, or a whole playtest, can be stopped.
-- **Decision inspector**: the match page's **Decisions** tab lists every decision Jev
-  was asked (filter by seat, kind, Forge AI fallbacks, flagged or no-effect plays); a
-  decision's page shows the board and hand as Jev saw them, Forge's prompt, every
-  option with its facts and Jev's probability, the choice, the outcome and the flags.
-- **Reproducible**: a match has a seed. The same seed and the same answers replay the
-  same game, so a match is as reproducible as Jev.
+- **Live game log and summary**: each match's page shows the table and Forge's log as
+  it grows (HTMX polling), and at the end a deterministic summary per seat: result,
+  life over time, turns, spells cast and lands played. A running match, or a whole
+  playtest, can be stopped.
+- **Reproducible**: a match has a seed, and the same seed replays the same game.
 - **Scryfall cache in the database**: card JSON is cached in Postgres
   (`scryfall_cards`) and shared by every deck. Card images are not stored: the
   browser loads them straight from Scryfall's CDN (`cards.scryfall.io`). The card table can be
@@ -98,21 +77,18 @@ hands the decision back to Forge's AI.
 - **Playable formats**: Duel Commander and the six constructed formats, two seats.
   Multiplayer Commander decks import and can be checked against Forge, but cannot be
   played until the bridge seats more than two players.
-- **Always Forge's AI**: mana payment, combat damage assignment and the other
-  decisions the bridge does not expose (scry, coin flips, …) are decided by Forge's AI
-  for every seat, and logged as such.
+- **Forge's AI plays**: every decision of every seat — mulligans, spells, attacks,
+  blocks, mana payment — is Forge's AI's.
 - **The end**: a winner, or a draw at the bridge's turn cap (`MAX_TURNS`).
 
-See [Forge](docs/forge.md) for the decision protocol.
+See [Forge](docs/forge.md) for the bridge's contract.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md) — how the apps fit together, the request →
   background job → stored result flow, the data model and the boundaries.
-- [Forge](docs/forge.md) — the bridge's contract, the client, the runner, the
-  worker pool, reproducibility and the summary.
-- [Agents](docs/agents.md) — the agent interface, the Jev agent, the
-  Jev and OpenRouter clients and the fallbacks to Forge's AI.
+- [Forge](docs/forge.md) — the bridge's contract, the client, the runner,
+  reproducibility, the summary and the match export.
 - [Deck import](docs/deck-import.md) — parsing (sideboards included), Scryfall
   fetching, the card cache, legality checks per format family and the format
   registry.
@@ -134,13 +110,11 @@ decks/                  # App: decks and the Scryfall cache
 ├── cache.py            #   Database and filesystem cache backends
 ├── metagame/           #   Metagame sources and sync
 └── importer.py         #   parse → fetch → validate, and the import job
-playtest/               # App: matches between agents
+playtest/               # App: playtest sessions and their matches
 ├── forge.py            #   HTTP client of the Forge bridge
 ├── runner.py           #   Starts a game on the bridge, stores its events and result
-├── workers.py          #   The worker pool answering Forge's decisions
-├── agents/             #   the Jev agent and its client
+├── tasks.py            #   The Celery task following a match, and the worker's recovery
 ├── summary.py          #   The deterministic match summary
-├── checks.py           #   Deterministic checks that flag suspicious decisions
 ├── export.py           #   A match as JSON lines or Markdown, for offline review
 └── forms.py            #   The new-playtest form: a deck to test and its opponents
 theme/static/           # Precompiled stylesheet, vendored fonts and icons
@@ -156,7 +130,6 @@ The project uses [`uv`](https://docs.astral.sh/uv/).
 ### Docker Compose
 
 ```bash
-export OPENROUTER_API_KEY="..."       # required for a Jev playtest; Forge AI needs none
 docker compose up --build
 docker compose exec web python manage.py createsuperuser
 ```
@@ -222,17 +195,15 @@ Scryfall calls. Run it weekly, e.g. from cron, after `load_oracle_cards`.
 
 ## Exporting a match
 
-Every decision Jev is asked is stored with what it saw (state, Forge's prompt, every
-option with its facts, in the order shown) and its full distribution. Export a match,
-or every match of a playtest, to review it offline, by hand or with a model:
+Export a match's log, or every match of a playtest, to review it offline:
 
 ```bash
 uv run python manage.py export_match <match id>                        # JSON lines, to stdout
-uv run python manage.py export_match <match id> --format md --seat 1 --flagged --output match.md
+uv run python manage.py export_match <match id> --format md --seat 1 --output match.md
 uv run python manage.py export_playtest <playtest id> --format md --output exports/
 ```
 
-`jsonl` is one line per event, each decision with its trace; `md` narrates each turn.
+`jsonl` is one line per event; `md` narrates each turn of Forge's log.
 The commands only write files: nothing is sent anywhere.
 
 ## Configuration
@@ -246,24 +217,15 @@ local development; real environment variables win):
 | `FORGE_URL` | The Forge bridge (Compose sets `http://forge:8080`) | `http://localhost:8080` |
 | `CELERY_BROKER_URL` | Redis the matches are queued on (Compose sets `redis://redis:6379/0`) | `redis://localhost:6379/0` |
 | `CELERY_CONCURRENCY` | Compose only: matches the worker follows at once | `16` |
-| `FORGE_WORKERS` | Worker threads answering Forge's decisions: the most Jev calls in flight; `0` lets each match's runner answer its own | `4` |
-| `OPENROUTER_API_KEY` | Jev's key: required to start a match | — |
-| `MAX_AGENT_CALLS` | Model calls per seat; past it the seat delegates to Forge's AI. Without a confidence gate Jev answers every decision: a long Duel Commander game takes about 500 | `1000` |
-| `MAX_MATCH_SECONDS` | Match wall clock; past it model seats delegate to Forge's AI | `1800` |
 | `SECRET_KEY` / `DEBUG` | Django basics | dev key / on |
 | `CSRF_TRUSTED_ORIGINS` | Comma-separated origins behind a proxy | — |
 | `RUN_JOBS_IN_BACKGROUND` | Run deck imports off the request thread | `1` |
 | `LOG_LEVEL` | Console log level | `INFO` |
 
-The bridge has its own settings — `DECISION_TIMEOUT` (an unanswered decision goes to
-Forge's AI), `MAX_TURNS` (the turn cap), `MAX_CONCURRENT_GAMES` and `ORPHAN_TIMEOUT` —
-described in [its README](https://github.com/gab-25/mtg_forge_engine#run); Compose
-passes the first three through.
-
-Jev is reached through OpenRouter (`/api/v1/systemone`), so one key covers everything;
-no TypeSafe account is needed. A seat asks Jev once per decision Forge
-exposes (a single-option decision is never asked), and a match can take a few hundred
-decisions: keep an eye on your OpenRouter spend.
+The bridge has its own settings — `MAX_TURNS` (the turn cap) and
+`MAX_CONCURRENT_GAMES` among them — described in
+[its README](https://github.com/gab-25/mtg_forge_engine#run); Compose passes those two
+through.
 
 ## Tests
 
@@ -272,8 +234,8 @@ uv run pytest
 FORGE_URL=http://localhost:8080 uv run pytest -m forge   # opt-in: against a real bridge
 ```
 
-The suite is hermetic: in-memory SQLite, no Scryfall, OpenRouter or Forge calls (a
-guard fails any test that reaches the network), and no API key. Matches play against
+The suite is hermetic: in-memory SQLite, no Scryfall or Forge calls (a guard fails
+any test that reaches the network). Matches play against
 `tests/fakeforge.py`, an in-memory bridge; only the tests marked `forge` reach a real
 one, and they skip without `FORGE_URL`. It also checks that templates only use classes
 the hand-written stylesheet defines and icons the vendored font subset can render.
