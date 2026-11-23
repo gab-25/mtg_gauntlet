@@ -31,8 +31,7 @@
             <div class="engine-box">
                 <div class="field-label">Engine</div>
                 {% include "partials/forge_status.html" with forge_url=sidebar.forge_url %}
-                {% if sidebar.jev_ready %}{% include "partials/jev_status.html" %}{% else %}{% include "partials/jev_status.html" with status="no API key" dot="danger" %}{% endif %}
-                {% include "partials/workers_status.html" with running=sidebar.running workers=sidebar.workers %}
+                {% include "partials/matches_status.html" with running=sidebar.running %}
             </div>
             <div class="account">
                 <div translate="no" class="avatar" aria-hidden="true">{{ user.get_username|slice:":2" }}</div>

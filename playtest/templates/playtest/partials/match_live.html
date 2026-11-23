@@ -4,7 +4,7 @@ Result, seats, summary and log. While the match runs the region polls itself
 the trigger and polling stops.
 {% endcomment %}
 <div id="match-live-region" class="stack"
-    {% if match.is_busy %}hx-get="{% url 'match_live' match.playtest_id match.id %}?tab={{ tab }}&amp;show={{ show }}{% if decision_query %}&amp;{{ decision_query }}{% endif %}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+    {% if match.is_busy %}hx-get="{% url 'match_live' match.playtest_id match.id %}?tab={{ tab }}&amp;show={{ show }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 
     <div class="cluster">
         {% if match.status == 'finished' %}
@@ -32,7 +32,6 @@ the trigger and polling stops.
         <section class="panel seat-card{% if match.winner_id == seat.id %} is-winner{% endif %}" aria-label="Seat {{ seat.position|add:1 }}">
             <div class="seat-head">
                 <span>Seat {{ seat.position|add:1 }} · {% if seat.position == 0 %}your deck{% else %}{% for position, source in sources.items %}{% if position == seat.position %}{{ source }}{% endif %}{% endfor %}{% endif %}</span>
-                <span class="chip"><span translate="no" class="ms ms-sm">{{ seat.agent_icon }}</span>{{ seat.get_agent_display }}</span>
             </div>
             <div class="seat-name">
                 <span translate="no" class="deck-name">{{ seat.deck_name }}</span>
@@ -41,12 +40,12 @@ the trigger and polling stops.
             {% if seat.metagame_deck %}<div class="faint">Metagame · {{ seat.metagame_deck.get_source_display }} · {{ seat.metagame_deck.fetched_at|date:"j M Y" }}</div>{% endif %}
             <div class="seat-stats">
                 <div class="seat-stat">
-                    <span class="seat-stat-value">{% if seat.agent == 'forge_ai' %}0%{% elif stats.decisions.agent_share is not None %}{{ stats.decisions.agent_share }}%{% else %}—{% endif %}</span>
-                    <span class="seat-stat-label">decided by {{ seat.get_agent_display }}</span>
+                    <span class="seat-stat-value">{% if stats %}{{ stats.spells_cast }}{% else %}—{% endif %}</span>
+                    <span class="seat-stat-label">spells cast</span>
                 </div>
                 <div class="seat-stat">
-                    <span class="seat-stat-value">{% if stats.confidence.median is not None %}{{ stats.confidence.median|floatformat:2 }}{% else %}—{% endif %}</span>
-                    <span class="seat-stat-label">median confidence</span>
+                    <span class="seat-stat-value">{% if stats %}{{ stats.lands_played }}{% else %}—{% endif %}</span>
+                    <span class="seat-stat-label">lands played</span>
                 </div>
                 <div class="seat-stat">
                     {% if not seat.coverage %}
@@ -74,7 +73,6 @@ the trigger and polling stops.
     <nav class="tabs" aria-label="Match sections">
         <a href="?tab=summary" class="tab{% if tab == 'summary' %} is-active{% endif %}"{% if tab == 'summary' %} aria-current="page"{% endif %}>Summary</a>
         <a href="?tab=log" class="tab{% if tab == 'log' %} is-active{% endif %}"{% if tab == 'log' %} aria-current="page"{% endif %}>Game log</a>
-        <a href="?tab=decisions" class="tab{% if tab == 'decisions' %} is-active{% endif %}"{% if tab == 'decisions' %} aria-current="page"{% endif %}>Decisions</a>
     </nav>
 
     {% if tab == 'summary' %}
@@ -89,18 +87,9 @@ the trigger and polling stops.
                     <tr><td>Turns played</td>{% for seat, stats in seat_stats %}<td class="num">{% if stats %}{{ stats.turns_taken }} of {{ summary.turns }}{% endif %}</td>{% endfor %}</tr>
                     <tr><td>Spells cast</td>{% for seat, stats in seat_stats %}<td class="num">{{ stats.spells_cast }}</td>{% endfor %}</tr>
                     <tr><td>Lands played</td>{% for seat, stats in seat_stats %}<td class="num">{{ stats.lands_played }}</td>{% endfor %}</tr>
-                    <tr><td>Decisions</td>{% for seat, stats in seat_stats %}<td class="num">{% if seat.agent == 'forge_ai' %}all Forge AI{% elif stats %}{{ stats.decisions.agent }} {{ seat.get_agent_display }} · {{ stats.decisions.forge_ai }} Forge AI{% if stats.decisions.agent_share is not None %} ({{ stats.decisions.agent_share }}% {{ seat.get_agent_display }}){% endif %}{% endif %}</td>{% endfor %}</tr>
-                    <tr><td>Confidence</td>{% for seat, stats in seat_stats %}<td class="num">{% if stats.confidence.rated %}median {{ stats.confidence.median|floatformat:2 }} · {{ stats.confidence.low }} low{% else %}—{% endif %}</td>{% endfor %}</tr>
-                    <tr><td>Fallbacks</td>{% for seat, stats in seat_stats %}<td class="num">{% for reason, count in stats.fallbacks.items %}{{ count }} {{ reason }}{% if not forloop.last %} · {% endif %}{% empty %}none{% endfor %}</td>{% endfor %}</tr>
-                    <tr><td>Failed plays</td>{% for seat, stats in seat_stats %}<td class="num">{% if stats and 'failed_plays' in stats %}{{ stats.failed_plays }}{% else %}—{% endif %}</td>{% endfor %}</tr>
-                    <tr><td>Flagged decisions</td>{% for seat, stats in seat_stats %}<td class="num">{% if stats and 'flags' in stats %}{% for check, count in stats.flags.items %}{{ count }} {{ check|flag_label }}{% if not forloop.last %} · {% endif %}{% empty %}none{% endfor %}{% else %}—{% endif %}</td>{% endfor %}</tr>
-                    {% if summary.seats.0.agreement or summary.seats.1.agreement %}<tr><td>Agrees with Forge AI</td>{% for seat, stats in seat_stats %}<td class="num">{% if stats.agreement %}{{ stats.agreement.agree }} of {{ stats.agreement.rated }}{% else %}—{% endif %}</td>{% endfor %}</tr>{% endif %}
                     <tr><td>Life by turn</td>{% for seat, stats in seat_stats %}<td class="num">{{ summary.starting_life }}{% for life in stats.life_by_turn %} › {{ life }}{% endfor %}</td>{% endfor %}</tr>
                 </tbody>
             </table>
-        </div>
-        <div class="panel-body">
-            <p class="field-help">Automatic for every seat: mana payment, combat damage assignment and the other choices the bridge leaves to Forge’s AI{% if summary.automatic %} ({% for method, count in summary.automatic.items %}{{ method }} {{ count }}{% if not forloop.last %}, {% endif %}{% endfor %}){% endif %}. Forge AI seats decide everything themselves.</p>
         </div>
     </section>
     {% else %}
@@ -117,73 +106,14 @@ the trigger and polling stops.
         </div>
         <div class="log">
             {% for row in log %}{% with event=row.event %}
-            <div class="log-row{% if row.headline or row.kind == 'game_over' %} log-headline{% endif %}{% if row.kind == 'fallback' or row.kind == 'play_failed' %} log-fallback{% elif row.kind == 'forge_ai' %} log-forge{% elif row.kind == 'decision' %} log-decision{% endif %}">
+            <div class="log-row{% if row.headline or row.kind == 'game_over' %} log-headline{% endif %}">
                 <span class="log-turn">{% if event.turn %}T{{ event.turn }}{% else %}{{ row.seq }}{% endif %}</span>
-                <div class="log-body">
-                    {% if row.kind == 'forge_ai' %}
-                    <span class="log-text"><span translate="no" class="ms ms-sm">memory</span> Forge AI decided for <span translate="no">{{ row.who }}</span>: {{ row.methods|join:", " }}{% if row.count > 1 %} ({{ row.count }}×){% endif %}</span>
-                    {% elif row.kind == 'fallback' %}
-                    <span class="log-text"><span translate="no">{{ row.who }}</span> — {{ event.text }}{% if event.payload.trace %} <a class="log-link" href="{% url 'decision_detail' match.playtest_id match.id event.payload.trace %}" title="Inspect this decision" aria-label="Inspect this decision"><span translate="no" class="ms ms-sm">search</span></a>{% endif %}</span>
-                    <span class="log-note">
-                        <span class="warn">{{ row.reason }}</span>{% if event.payload.confidence is not None %} · confidence <span class="font-mono">{{ event.payload.confidence|floatformat:2 }}</span>{% endif %}
-                        {% for option in event.payload.probabilities %}{% if forloop.first %} · Jev leaned to: {% else %}, {% endif %}{{ option.label }} <span class="font-mono">{{ option.p|floatformat:2 }}</span>{% endfor %}
-                        {% if event.payload.fallback_reason and row.reason == 'error' %} · {{ event.payload.fallback_reason }}{% endif %}
-                    </span>
-                    {% if event.payload.failed_play %}<span class="log-note"><span class="warn">failed play</span> · Forge did not carry out {{ event.payload.failed_play }}</span>{% endif %}
-                    {% elif row.kind == 'decision' %}
-                    <span class="log-text"><span translate="no" class="muted">{{ row.who }}</span> — {{ event.text }}{% if event.payload.trace %} <a class="log-link" href="{% url 'decision_detail' match.playtest_id match.id event.payload.trace %}" title="Inspect this decision" aria-label="Inspect this decision"><span translate="no" class="ms ms-sm">search</span></a>{% endif %}</span>
-                    {% if event.payload.confidence is not None %}
-                    <span class="log-note">
-                        Jev <span class="font-mono">{{ event.payload.confidence|floatformat:2 }}</span>
-                        {% for option in event.payload.probabilities|slice:"1:" %}{% if forloop.first %} · runner-up: {% else %}, {% endif %}{{ option.label }} <span class="font-mono">{{ option.p|floatformat:2 }}</span>{% endfor %}
-                    </span>
-                    {% endif %}
-                    {% if event.payload.failed_play %}<span class="log-note"><span class="warn">failed play</span> · Forge did not carry out {{ event.payload.failed_play }}</span>{% endif %}
-                    {% if event.reasoning %}<span class="log-reason">“{{ event.reasoning }}”</span>{% endif %}
-                    {% elif row.kind == 'play_failed' %}
-                    <span class="log-text"><span translate="no" class="muted">{{ row.who }}</span> — {{ event.payload.ability|default:event.text }}</span>
-                    <span class="log-note"><span class="warn">failed play</span> · Forge did not carry it out ({{ event.payload.reason|default:"unknown reason" }})</span>
-                    {% else %}
-                    <span class="log-text">{{ event.text }}</span>
-                    {% endif %}
-                </div>
+                <div class="log-body"><span class="log-text">{{ event.text }}</span></div>
             </div>
             {% endwith %}{% empty %}
             <div class="empty"><p>{% if match.is_busy and show == 'all' %}Forge is shuffling up…{% else %}Nothing to show.{% endif %}</p></div>
             {% endfor %}
         </div>
-    </section>
-    {% else %}
-    <section class="panel" aria-label="Decisions">
-        <div class="log-toolbar">
-            <span class="panel-title">Decisions</span>
-            {% for label, query, active in only_chips %}<a href="?tab=decisions{% if query %}&amp;{{ query }}{% endif %}" class="chip-link{% if active %} is-active{% endif %}"{% if active %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
-            {% for label, query, active in seat_chips %}<a href="?tab=decisions{% if query %}&amp;{{ query }}{% endif %}" class="chip-link{% if active %} is-active{% endif %}"{% if active %} aria-pressed="true"{% endif %}>{{ label }}</a>{% endfor %}
-            {% for label, query, active in kind_chips %}<a href="?tab=decisions{% if query %}&amp;{{ query }}{% endif %}" class="chip-link{% if active %} is-active{% endif %}"{% if active %} aria-pressed="true"{% endif %}>{{ label }}</a>{% endfor %}
-            <span class="faint">{{ decisions|length }} decision{{ decisions|pluralize }}</span>
-        </div>
-        {% if decisions %}
-        <div class="table-scroll">
-            <table class="data-table">
-                <thead><tr><th>Turn</th><th>Seat</th><th>Kind</th><th>Choice</th><th class="num">Confidence</th><th>Outcome</th><th>Flags</th></tr></thead>
-                <tbody>
-                    {% for trace in decisions %}
-                    <tr class="row-link">
-                        <td class="num">T{{ trace.turn }}<span class="cell-sub">{{ trace.step|default:"start" }}</span></td>
-                        <td>{{ trace.seat_position|add:1 }}</td>
-                        <td>{{ trace.kind }}</td>
-                        <td class="cell-main"><a class="row-target" href="{% url 'decision_detail' match.playtest_id match.id trace.id %}{% if decision_query %}?{{ decision_query }}{% endif %}">{% if trace.choice is None %}<span translate="no" class="ms ms-sm">memory</span> Forge AI · {{ trace.fallback_kind }}{% else %}{{ trace.chosen_label }}{% endif %}</a></td>
-                        <td class="num font-mono">{% if trace.confidence is not None %}{{ trace.confidence|floatformat:2 }}{% else %}—{% endif %}</td>
-                        <td class="{% if trace.outcome == 'no_effect' %}warn{% else %}muted{% endif %}">{{ trace.get_outcome_display }}</td>
-                        <td>{% for flag in trace.flags %}<span class="chip">{{ flag.check|flag_label }}</span>{% endfor %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="empty"><p>{% if has_traces %}No decision matches these filters.{% else %}No decision traces for this match: they are recorded from this version on.{% endif %}</p></div>
-        {% endif %}
     </section>
     {% endif %}
 </div>

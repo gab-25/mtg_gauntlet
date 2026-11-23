@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from .models import DecisionTrace, Match, MatchEvent, Playtest, Seat
+from .models import Match, MatchEvent, Playtest, Seat
 
 
 class SeatInline(admin.TabularInline):
@@ -22,7 +22,7 @@ class MatchAdmin(admin.ModelAdmin):
 class MatchEventAdmin(admin.ModelAdmin):
     list_display = ("match", "seq", "turn", "seat_position", "kind", "text")
     list_filter = ("kind",)
-    search_fields = ("text", "reasoning")
+    search_fields = ("text",)
 
 
 @admin.register(Playtest)
@@ -30,15 +30,3 @@ class PlaytestAdmin(admin.ModelAdmin):
     list_display = ("id", "owner", "format", "deck_name", "seed", "created_at")
     list_filter = ("format",)
     readonly_fields = ("created_at",)
-
-
-@admin.register(DecisionTrace)
-class DecisionTraceAdmin(admin.ModelAdmin):
-    list_display = ("match", "id", "seat_position", "turn", "kind", "choice", "confidence", "outcome")
-    list_filter = ("kind", "outcome", "fallback_kind")
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False

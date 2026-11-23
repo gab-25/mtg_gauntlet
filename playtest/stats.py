@@ -4,7 +4,6 @@ Every record is seen from seat 0, the deck under test. Only finished matches
 count; a match that failed, was stopped or is still playing has no result.
 """
 
-import statistics
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -26,8 +25,6 @@ class Record:
     # Rounded percentages and averages; None when no match is finished.
     win_rate: int | None = None
     avg_turns: float | None = None
-    median_confidence: float | None = None
-    jev_share: int | None = None
 
     @property
     def played(self) -> int:
@@ -36,11 +33,6 @@ class Record:
     @property
     def score(self) -> str:
         return f"{self.won}–{self.lost}–{self.draw}"
-
-
-def _seat_zero(match) -> dict:
-    seats = (match.summary or {}).get("seats") or []
-    return next((seat for seat in seats if seat.get("seat") == 0), {})
 
 
 def record(matches) -> Record:
@@ -55,30 +47,7 @@ def record(matches) -> Record:
     result.win_rate = round(100 * result.won / len(finished))
     turns = [(match.summary or {}).get("turns") or match.turn for match in finished]
     result.avg_turns = round(sum(turns) / len(turns), 1)
-    medians = [
-        median
-        for match in finished
-        if (median := (_seat_zero(match).get("confidence") or {}).get("median")) is not None
-    ]
-    if medians:
-        result.median_confidence = round(statistics.median(medians), 2)
-    decisions = [_seat_zero(match).get("decisions") or {} for match in finished]
-    agent = sum(d.get("agent") or 0 for d in decisions)
-    forge_ai = sum(d.get("forge_ai") or 0 for d in decisions)
-    if agent + forge_ai:
-        result.jev_share = round(100 * agent / (agent + forge_ai))
     return result
-
-
-def flag_totals(matches) -> dict[str, int]:
-    """The deck under test's flagged decisions (playtest.checks), by check, over the finished matches."""
-    totals: dict[str, int] = {}
-    for match in matches:
-        if match.result not in RESULTS:
-            continue
-        for check, count in (_seat_zero(match).get("flags") or {}).items():
-            totals[check] = totals.get(check, 0) + count
-    return dict(sorted(totals.items()))
 
 
 def opponent_source(seat) -> str:

@@ -46,7 +46,6 @@
     <div class="stat-tile"><span class="stat-value">{{ record.score }}</span><span class="stat-label">Record, {{ record.played }} match{{ record.played|pluralize:"es" }}</span></div>
     <div class="stat-tile"><span class="stat-value ok">{% if record.win_rate is None %}—{% else %}{{ record.win_rate }}%{% endif %}</span><span class="stat-label">Win rate</span></div>
     <div class="stat-tile"><span class="stat-value">{{ record.avg_turns|dash }}</span><span class="stat-label">Turns per game</span></div>
-    <div class="stat-tile"><span class="stat-value warn">{{ record.median_confidence|dash }}</span><span class="stat-label">Median Jev confidence</span></div>
 </div>
 
 <nav class="tabs" aria-label="Deck sections">

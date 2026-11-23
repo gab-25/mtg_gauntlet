@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Django app where AI agents playtest competitive Magic: The Gathering decks (Standard,
+Django app where Forge's AI playtests competitive Magic: The Gathering decks (Standard,
 Pioneer, Modern, Legacy, Vintage, Pauper, Duel Commander; Commander decks import but
 two-seat play only) under real rules: Forge, behind the
 [`mtg_forge_engine`](https://github.com/gab-25/mtg_forge_engine) bridge, plays every
-game, and one player takes every seat of a playtest: Jev, picking among Forge's
-options, or Forge's own AI (users pick decks and that player, never a model). Start
-from `README.md` (features, rules, configuration); details live in `docs/`.
+game, and its own AI takes every seat (users pick the decks). The app follows each
+game, stores its log and sums it up. Start from `README.md` (features, rules,
+configuration); details live in `docs/`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ uv run python manage.py runserver          # local dev server on :8000, auto-rel
 uv run python manage.py makemigrations     # after model/choices changes
 uv run python manage.py load_oracle_cards  # fill the card cache from Scryfall bulk data
 uv run python manage.py sync_metagame      # import the top decks of each format (network)
-uv run python manage.py export_match <id> --format md  # a match and its decision traces, for review
+uv run python manage.py export_match <id> --format md  # a match's log, for review
 uv run python manage.py export_playtest <id> --output DIR  # every match of a playtest, one file each
 docker compose up --build                  # Postgres + Forge + Redis + gunicorn on :8000 + the worker
 docker compose up -d db                    # just Postgres, for local runs
@@ -44,14 +44,9 @@ The default `DATABASE_URL` is the Compose Postgres on localhost; set
   plays `games_per_opponent` matches against each chosen opponent.
 - `playtest/runner.py` — starts a match's game on the bridge, copies its events into
   `MatchEvent` rows, stores the result and the summary (`playtest/summary.py`).
-- `playtest/tasks.py` — the Celery task following a match, and the worker's hooks
-  (pool start, recovery) → `docs/forge.md`.
-- `playtest/workers.py` — the worker pool answering the bridge's decisions with each
-  seat's agent, storing a `DecisionTrace` per decision Jev is asked → `docs/forge.md`.
-- `playtest/checks.py` — deterministic checks that flag suspicious decisions;
-  `playtest/export.py` — a match as JSON lines or Markdown → `docs/agents.md`.
-- `playtest/agents/` — the Jev agent and its client →
-  `docs/agents.md`.
+- `playtest/tasks.py` — the Celery task following a match, and the worker's recovery
+  hook → `docs/forge.md`.
+- `playtest/export.py` — a match's log as JSON lines or Markdown → `docs/forge.md`.
 - `theme/static/` — the hand-written stylesheet, vendored fonts and icons.
 - Overall flow (request → Celery task (matches) or thread (imports) → stored result,
   HTMX polling) → `docs/architecture.md`; tests, Docker, migrations →
@@ -61,12 +56,10 @@ The default `DATABASE_URL` is the Compose Postgres on localhost; set
 
 - Code, comments, docstrings, commit messages, README, `docs/` and issues are in
   English.
-- Forge is the rules engine: never re-implement rules or card effects here. An agent
-  only picks one of the bridge's options (by index) or delegates to Forge's AI; no
-  model is ever the rules engine.
+- Forge is the rules engine and its AI the player: never re-implement rules, card
+  effects or play decisions here.
 - `decks/formats.py` is the single source for format parameters (its `forge_format`
-  is the bridge's name). Adding a format, a `Seat.Agent` or any status/choice value
-  needs a migration.
+  is the bridge's name). Adding a format or any status/choice value needs a migration.
 - Templates may only use CSS classes defined in the hand-written stylesheets in
   `theme/static/css/` — `styles.css` (tokens in `:root`, reset, base), `layout.css`
   (app shell, page furniture), `components.css`, linked in that order by
@@ -74,10 +67,9 @@ The default `DATABASE_URL` is the Compose Postgres on localhost; set
   (no `j`/`q`), each icon with `translate="no"`. `tests/test_assets.py` enforces both;
   keep `KNOWN_UNCOMPILED` empty. Every page extends `base.html` (the sidebar); its
   section comes from the route name (`nav_section`).
-- Tests must never call Scryfall, OpenRouter or the Forge bridge (`tests/conftest.py`
-  fails any that does): use the `fake_forge` fixture (`tests/fakeforge.py`),
-  monkeypatch `fetch_card_data` / `fetch_card_raw`, `requests` or
-  `typesafe.system_one`, or pass a fake `ask`. Only tests marked `forge`
+- Tests must never call Scryfall or the Forge bridge (`tests/conftest.py` fails any
+  that does): use the `fake_forge` fixture (`tests/fakeforge.py`), or monkeypatch
+  `fetch_card_data` / `fetch_card_raw` or `requests`. Only tests marked `forge`
   reach a real bridge. Celery tasks run eagerly in tests and the broker is refused
   (`tests/conftest.py`). Shared builders are in `tests/factories.py`.
 - Every deck/match view loads rows through `mtg_gauntlet.access.get_owned_or_404`.

@@ -19,15 +19,6 @@ the region polls itself (outerHTML swap); once every match ended polling stops.
         </div>
     </section>
 
-    {% if flag_totals %}
-    <section class="panel" aria-label="Flagged decisions">
-        <div class="panel-head"><span class="panel-title">Flagged decisions</span><span class="panel-sub">your deck, finished games</span></div>
-        <div class="panel-body cluster">
-            {% for check, count in flag_totals.items %}<span class="chip">{{ count }} {{ check|flag_label }}</span>{% endfor %}
-        </div>
-    </section>
-    {% endif %}
-
     {% if playtest.games_per_opponent > 1 %}
     <section class="panel" aria-label="Matchups">
         <div class="panel-head">
